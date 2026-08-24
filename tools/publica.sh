@@ -21,6 +21,11 @@ sed -i '' "s|arranque.js?v=$ACTUAL|arranque.js?v=$NUEVA|" app/index.html
 echo "versión $ACTUAL → $NUEVA"
 
 node tools/audita.mjs
+# El feed de calendario es lo único que consume un programa ajeno (Apple
+# Calendar, Google, Outlook): un formato mal puesto no se ve en la app, se ve
+# en que el calendario no sincroniza. Sin red, pasa siempre.
+node tools/prueba-ics.mjs > /dev/null || { echo '❌ el feed de calendario falla'; exit 1; }
+echo '✅ feed de calendario correcto'
 npx wrangler deploy 2>&1 | tail -3
 
 URL="https://meta.beltranfersan.workers.dev"

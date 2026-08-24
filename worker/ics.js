@@ -27,15 +27,29 @@ function diaSiguiente(ymd) {
 }
 
 function plegar(linea) {
-  // RFC 5545: ninguna línea puede pasar de 75 octetos: se pliega con \r\n + espacio.
-  if (linea.length <= 74) return linea;
-  let out = linea.slice(0, 74);
-  let resto = linea.slice(74);
-  while (resto.length) {
-    out += '\r\n ' + resto.slice(0, 73);
-    resto = resto.slice(73);
+  // RFC 5545: el tope son 75 OCTETOS, no 75 caracteres, y la continuación
+  // empieza por un espacio que no forma parte del valor.
+  //
+  // La versión anterior contaba `linea.length` (unidades UTF-16) y cortaba
+  // con slice(), lo que fallaba de dos formas en español:
+  //   - "Examen: Matemáticas Aplicadas a las Ciencias Sociales II" mide 74
+  //     caracteres pero 78 octetos: se mandaba sin plegar, saltándose el tope.
+  //   - un emoji en el título justo en el corte se partía por la mitad y
+  //     llegaba al calendario como el carácter de reemplazo (?).
+  // `for...of` recorre PUNTOS DE CÓDIGO, así que nunca parte un carácter.
+  const enc = new TextEncoder();
+  if (enc.encode(linea).length <= 75) return linea;
+
+  const trozos = [];
+  let actual = '', octetos = 0, tope = 75;   // las continuaciones llevan un
+  for (const ch of linea) {                  // espacio delante: les quedan 74
+    const n = enc.encode(ch).length;
+    if (octetos + n > tope) { trozos.push(actual); actual = ''; octetos = 0; tope = 74; }
+    actual += ch;
+    octetos += n;
   }
-  return out;
+  if (actual) trozos.push(actual);
+  return trozos.join('\r\n ');
 }
 
 export function construirIcs(buzon, codigo) {
