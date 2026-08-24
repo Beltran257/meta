@@ -8,7 +8,7 @@
    del primer pintado. Es el único sitio donde cabe: un script de módulo va
    diferido y llegaría tarde, y la CSP no permite un <script> en línea.
    =========================================================================== */
-self.APP_VERSION = '2.0.15';
+self.APP_VERSION = '2.0.16';
 
 self.SHELL = [
   './',
