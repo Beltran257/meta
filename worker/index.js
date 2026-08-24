@@ -490,8 +490,18 @@ async function apiSalud(env) {
 // META_ARCHIVOS (fotos/PDF de apuntes, binario) se queda fuera a propósito:
 // meterlo en JSON de texto corrompería los bytes — tools/backup.mjs local sí
 // lo respalda bien, con un fichero por clave.
+//
+// La comparación del secreto es en tiempo constante: BACKUP_SECRETO es un
+// secreto de verdad, y === dejaría un canal de tiempo por el que se podría
+// adivinar carácter a carácter.
+function secretosIguales(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
+}
 async function apiInternoBackup(request, env) {
-  if (!env.BACKUP_SECRETO || request.headers.get('X-Backup-Secreto') !== env.BACKUP_SECRETO) {
+  if (!env.BACKUP_SECRETO || !secretosIguales(request.headers.get('X-Backup-Secreto') || '', env.BACKUP_SECRETO)) {
     return json({ error: 'no autorizado' }, 401);
   }
   if (!env.META_DATOS) return json({ error: 'almacenamiento no disponible' }, 503);
