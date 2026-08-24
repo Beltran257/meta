@@ -5,7 +5,7 @@
    lista, así que una sección nueva entra sola en las tres: no se puede olvidar.
    =========================================================================== */
 
-export const APP = { nombre: 'Meta', version: '2.0.14' };
+export const APP = { nombre: 'Meta', version: '2.0.15' };
 
 export const CLAVES = {
   prefs:        { k: 'meta.prefs.v1',        desc: 'Preferencias de ESTE aparato (vista abierta, tema, avisos vistos)' },
