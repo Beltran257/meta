@@ -482,6 +482,29 @@ async function apiSalud(env) {
   }, 200);
 }
 
+// /api/interno/backup -> volcado completo de META_DATOS para la copia de
+// seguridad automática que hace morning-briefing cada noche (colgada de su
+// cron, ver [[services]] META en su wrangler.toml). Protegido con un secreto
+// compartido, no con la cuenta de usuario: no hay usuario detrás de esta
+// llamada, es Worker-a-Worker. Mismo criterio que RESERVAS_SECRETO.
+// META_ARCHIVOS (fotos/PDF de apuntes, binario) se queda fuera a propósito:
+// meterlo en JSON de texto corrompería los bytes — tools/backup.mjs local sí
+// lo respalda bien, con un fichero por clave.
+async function apiInternoBackup(request, env) {
+  if (!env.BACKUP_SECRETO || request.headers.get('X-Backup-Secreto') !== env.BACKUP_SECRETO) {
+    return json({ error: 'no autorizado' }, 401);
+  }
+  if (!env.META_DATOS) return json({ error: 'almacenamiento no disponible' }, 503);
+  const datos = {};
+  let cursor;
+  do {
+    const pagina = await env.META_DATOS.list(cursor ? { cursor } : {});
+    for (const k of pagina.keys) datos[k.name] = await env.META_DATOS.get(k.name);
+    cursor = pagina.list_complete ? null : pagina.cursor;
+  } while (cursor);
+  return json({ app: 'meta', generado: new Date().toISOString(), datos }, 200);
+}
+
 /* -------------------------------- router ---------------------------------- */
 
 /* Rutas que cambian algo. Además de POST, exigen la cabecera X-Meta: un
@@ -528,6 +551,7 @@ export default {
 
     try {
       if (url.pathname === '/api/salud') return await apiSalud(env);
+      if (url.pathname === '/api/interno/backup') return await apiInternoBackup(request, env);
       if (url.pathname.startsWith('/api/auth/')) return await apiAuth(request, url, env, ctx);
       if (url.pathname === '/api/oauth/google/callback') return await callbackGoogle(url, env);
       if (url.pathname === '/api/oauth/microsoft/callback') return await apiMicrosoft.callback(url, env);

@@ -11,7 +11,7 @@
    cambia en cada publicación y todos los navegadores ven la actualización.
    Lo pone tools/publica.sh y lo vigila tools/audita.mjs: no se toca a mano.
    =========================================================================== */
-importScripts('./shell.js?v=2.0.8');
+importScripts('./shell.js?v=2.0.9');
 
 const CACHE = `meta-v${self.APP_VERSION}`;
 
