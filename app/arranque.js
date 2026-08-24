@@ -18,7 +18,7 @@
    La versión la reescribe tools/publica.sh y la vigila tools/audita.mjs.
    =========================================================================== */
 (function () {
-  var VERSION = '2.0.12';
+  var VERSION = '2.0.14';
 
   if (!('serviceWorker' in navigator) || !window.caches) return;
 

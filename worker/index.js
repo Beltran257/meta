@@ -19,6 +19,7 @@ import * as microsoft from './microsoft.js';
 import * as notion from './notion.js';
 import * as ia from './ia.js';
 import * as archivos from './archivos.js';
+import { extraerTexto } from './ocr.js';
 import { resumenBriefing } from './briefing.js';
 
 const ORIGEN = 'https://meta.beltranfersan.workers.dev';
@@ -375,7 +376,7 @@ async function apiNotion(url, env, usuario) {
    =========================================================================== */
 const RE_ID_APUNTE = /^p[0-9a-z]+$/;
 
-async function apiArchivosSubir(request, env, usuario) {
+async function apiArchivosSubir(request, env, usuario, ctx) {
   if (!env.META_ARCHIVOS) return json({ error: 'almacenamiento de archivos no disponible' }, 503);
 
   const id = request.headers.get('X-Meta-Id') || '';
@@ -403,6 +404,19 @@ async function apiArchivosSubir(request, env, usuario) {
   await archivos.registrarApunte(env, espacio, {
     id, tipo, titulo, asignaturaId, evaluacion, fecha, r2: true, actualizado: Date.now(),
   });
+
+  // El OCR va en segundo plano: no tiene sentido que subir una foto se
+  // note más lento por una llamada a Workers AI que puede tardar varios
+  // segundos. Cuando termine, se vuelve a registrar el MISMO apunte con el
+  // texto añadido — registrarApunte() sustituye por id, no duplica.
+  ctx.waitUntil((async () => {
+    const texto = await extraerTexto(env, bytes, mime, `${titulo}.${tipo === 'pdf' ? 'pdf' : 'jpg'}`);
+    if (!texto) return;
+    await archivos.registrarApunte(env, espacio, {
+      id, tipo, titulo, asignaturaId, evaluacion, fecha, r2: true, texto, actualizado: Date.now(),
+    }).catch(() => {});
+  })());
+
   return json({ ok: true }, 200);
 }
 
@@ -582,7 +596,7 @@ export default {
         return json({ briefing: resumenBriefing(buzon) }, 200);
       }
       if (url.pathname === '/api/ia') return await apiIa(request, env);
-      if (url.pathname === '/api/archivos/subir') return await apiArchivosSubir(request, env, usuario);
+      if (url.pathname === '/api/archivos/subir') return await apiArchivosSubir(request, env, usuario, ctx);
       if (url.pathname === '/api/archivos/lista') return await apiArchivosLista(env, usuario);
       if (url.pathname === '/api/archivos/borrar') return await apiArchivosBorrar(request, env, usuario);
       if (url.pathname.startsWith('/api/archivos/')) return await apiArchivosDescarga(url, env, usuario);

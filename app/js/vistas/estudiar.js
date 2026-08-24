@@ -477,10 +477,14 @@ accion('flash-generar', async (d, el) => {
 });
 
 /** Texto de los apuntes de ese tema, si los hay: es lo que hace que la IA
-    genere sobre TU temario y no sobre el tema en abstracto. */
+    genere sobre TU temario y no sobre el tema en abstracto. No solo los
+    escritos a mano (tipo 'texto'): una foto o un PDF también trae `texto`
+    en cuanto el servidor termina de leerlo (ver worker/ocr.js) — antes esta
+    función solo miraba `tipo === 'texto'`, así que una foto de apuntes
+    nunca llegaba a la IA aunque su texto ya estuviera guardado. */
 function textoDeApuntes(tema) {
   const apuntes = leer('apuntesMeta', [])
-    .filter(a => a.tipo === 'texto' && (a.temaId === tema.id ||
+    .filter(a => a.texto && (a.temaId === tema.id ||
       (a.asignaturaId === tema.asignaturaId && a.titulo?.toLowerCase().includes(tema.nombre.toLowerCase()))))
     .map(a => a.texto || '')
     .join('\n\n');
