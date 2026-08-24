@@ -1,0 +1,204 @@
+/* ===========================================================================
+   GOOGLE CALENDAR — conexión real (lectura y escritura), aparte del feed ICS.
+   Un solo scope, calendar.events: crea/actualiza/borra en SU calendario
+   principal los exámenes y entregas que él apunta en Meta. El token vive en
+   KV, atado al mismo código de sincronización que ya usa el resto de la app
+   (nunca a una cuenta ni a una contraseña).
+   =========================================================================== */
+
+const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
+const CAL_BASE = 'https://www.googleapis.com/calendar/v3';
+const SCOPE = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email';
+
+export function urlAutorizacion(env, redirectUri, state) {
+  const u = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  u.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
+  u.searchParams.set('redirect_uri', redirectUri);
+  u.searchParams.set('response_type', 'code');
+  u.searchParams.set('scope', SCOPE);
+  u.searchParams.set('access_type', 'offline');
+  // 'consent' fuerza a Google a devolver refresh_token SIEMPRE, incluso si él
+  // ya había autorizado antes: sin esto, una reconexión tras desconectar se
+  // queda sin refresh_token y la app deja de poder renovar el acceso sola.
+  u.searchParams.set('prompt', 'consent');
+  u.searchParams.set('state', state);
+  return u.toString();
+}
+
+export async function intercambiarCodigo(env, code, redirectUri) {
+  const r = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code, client_id: env.GOOGLE_CLIENT_ID, client_secret: env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: redirectUri, grant_type: 'authorization_code',
+    }),
+  });
+  if (!r.ok) throw new Error('token exchange failed: ' + (await r.text()).slice(0, 200));
+  return r.json();
+}
+
+async function refrescarToken(env, refreshToken) {
+  const r = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      refresh_token: refreshToken, client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET, grant_type: 'refresh_token',
+    }),
+  });
+  if (!r.ok) throw new Error('refresh failed: ' + (await r.text()).slice(0, 200));
+  return r.json();
+}
+
+/* --- ENTRAR CON GOOGLE ------------------------------------------------------
+   Mismo cliente OAuth que la conexión de calendario, pero pidiendo solo los
+   permisos de identidad: así "entrar con Google" no pide acceso al calendario
+   a quien únicamente quiere una cuenta. No hace falta registrar otra URL de
+   retorno en la consola de Google porque el callback es el mismo: lo que
+   distingue los dos flujos es el prefijo del parámetro state. */
+const SCOPE_LOGIN = 'openid email profile';
+
+export function urlLogin(env, redirectUri, state) {
+  const u = new URL('https://accounts.google.com/o/oauth2/v2/auth');
+  u.searchParams.set('client_id', env.GOOGLE_CLIENT_ID);
+  u.searchParams.set('redirect_uri', redirectUri);
+  u.searchParams.set('response_type', 'code');
+  u.searchParams.set('scope', SCOPE_LOGIN);
+  u.searchParams.set('state', state);
+  return u.toString();
+}
+
+/** Identidad de quien acaba de entrar: id estable de Google (sub), correo y
+    nombre. El 'sub' es lo que se guarda; el correo puede cambiar. */
+export async function perfilDe(accessToken) {
+  const r = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!r.ok) return null;
+  const p = await r.json();
+  return { sub: p.id, email: p.email || '', nombre: p.name || '' };
+}
+
+export async function emailDe(accessToken) {
+  const r = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!r.ok) return null;
+  return (await r.json())?.email || null;
+}
+
+export async function revocar(refreshToken) {
+  try {
+    await fetch(REVOKE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: refreshToken }),
+    });
+  } catch { /* si falla, el token igualmente se borra de KV: deja de usarse */ }
+}
+
+/** Access token válido para este código, renovando con el refresh_token si
+    hace falta. Devuelve null si no hay conexión de Google para este buzón. */
+async function accessTokenDe(env, codigo) {
+  const clave = `google:${codigo}`;
+  const g = await env.META_DATOS.get(clave, 'json');
+  if (!g?.refresh_token) return null;
+
+  if (g.access_token && Date.now() < (g.expira || 0)) return g.access_token;
+
+  const t = await refrescarToken(env, g.refresh_token);
+  g.access_token = t.access_token;
+  g.expira = Date.now() + Math.max(0, (t.expires_in || 3600) - 60) * 1000;
+  await env.META_DATOS.put(clave, JSON.stringify(g));
+  return g.access_token;
+}
+
+async function llamarCalendar(accessToken, method, path, cuerpo) {
+  return fetch(CAL_BASE + path, {
+    method,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      ...(cuerpo ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: cuerpo ? JSON.stringify(cuerpo) : undefined,
+  });
+}
+
+function eventoDeTarea(t, nombreAsig) {
+  const esExamen = t.tipo === 'examen';
+  const [a, m, d] = t.fecha.split('-').map(Number);
+  const fin = new Date(a, m - 1, d + 1); // fin EXCLUSIVO, como en el feed ICS
+  const finYmd = `${fin.getFullYear()}-${String(fin.getMonth() + 1).padStart(2, '0')}-${String(fin.getDate()).padStart(2, '0')}`;
+  return {
+    summary: `${esExamen ? 'Examen' : 'Entrega'}: ${nombreAsig} — ${t.titulo}`,
+    description: t.notas || undefined,
+    start: { date: t.fecha },
+    end: { date: finYmd },
+  };
+}
+
+/** Deja SU Google Calendar igual que la lista de tareas del buzón: crea lo
+    que falta, actualiza lo que cambió y borra lo que ya no está. Se apoya en
+    un mapa tareaId -> eventId guardado aparte, así una tarea editada
+    actualiza el MISMO evento en vez de duplicarlo. */
+export async function reconciliar(env, codigo, buzon) {
+  const accessToken = await accessTokenDe(env, codigo);
+  if (!accessToken) return;
+
+  const asignaturas = buzon?.claves?.asignaturas?.datos || [];
+  const tareas = (buzon?.claves?.tareas?.datos || []).filter(t => t.fecha);
+  const nombreDe = id => asignaturas.find(a => a.id === id)?.nombre || 'Sin asignatura';
+
+  const mk = `gmap:${codigo}`;
+  const mapa = (await env.META_DATOS.get(mk, 'json')) || {};
+  const vivos = new Set(tareas.map(t => t.id));
+
+  for (const [tareaId, eventId] of Object.entries(mapa)) {
+    if (vivos.has(tareaId)) continue;
+    await llamarCalendar(accessToken, 'DELETE', `/calendars/primary/events/${eventId}`).catch(() => {});
+    delete mapa[tareaId];
+  }
+
+  for (const t of tareas) {
+    const cuerpo = eventoDeTarea(t, nombreDe(t.asignaturaId));
+    if (mapa[t.id]) {
+      const r = await llamarCalendar(accessToken, 'PUT', `/calendars/primary/events/${mapa[t.id]}`, cuerpo);
+      // el evento pudo borrarse a mano en Google: si ya no existe, se recrea
+      if (r.status === 404 || r.status === 410) delete mapa[t.id];
+      else {
+        if (!r.ok) console.log('google-put-fallo', codigo, r.status, (await r.text()).slice(0, 200));
+        continue;
+      }
+    }
+    const r = await llamarCalendar(accessToken, 'POST', '/calendars/primary/events', cuerpo);
+    if (r.ok) mapa[t.id] = (await r.json()).id;
+    else console.log('google-post-fallo', codigo, r.status, (await r.text()).slice(0, 200));
+  }
+
+  await env.META_DATOS.put(mk, JSON.stringify(mapa));
+}
+
+export async function estadoConexion(env, codigo) {
+  const g = await env.META_DATOS.get(`google:${codigo}`, 'json');
+  return { conectado: !!g?.refresh_token, email: g?.email || null, ultima: g?.ultima || null };
+}
+
+export async function guardarConexion(env, codigo, tokens, email) {
+  await env.META_DATOS.put(`google:${codigo}`, JSON.stringify({
+    refresh_token: tokens.refresh_token,
+    access_token: tokens.access_token,
+    expira: Date.now() + Math.max(0, (tokens.expires_in || 3600) - 60) * 1000,
+    email,
+    ultima: Date.now(),
+  }));
+}
+
+export async function desconectar(env, codigo) {
+  const clave = `google:${codigo}`;
+  const g = await env.META_DATOS.get(clave, 'json');
+  if (g?.refresh_token) await revocar(g.refresh_token);
+  await env.META_DATOS.delete(clave);
+  await env.META_DATOS.delete(`gmap:${codigo}`);
+}

@@ -1,0 +1,15 @@
+{
+  "name": "meta",
+  "version": "1.0.0",
+  "description": "Organizador académico (PWA + Cloudflare Worker)",
+  "main": "index.js",
+  "scripts": {
+    "audita": "node tools/audita.mjs",
+    "publica": "./tools/publica.sh"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "private": true
+}

@@ -1,0 +1,260 @@
+/* ===========================================================================
+   META — CAPA BASE: tokens, reset y reglas de dispositivo.
+
+   IDENTIDAD VISUAL: editorial + producto. Papel calmado (#F7F7F5), superficies
+   blancas, una sola línea de 1px como separador, radios pequeños y NADA de
+   sombras salvo lo que flota de verdad (menús, hojas). El color es funcional:
+   violeta solo para lo activo y lo accionable; verde, ámbar y rojo solo para
+   estados. Si un elemento no ayuda a decidir algo, no lleva color.
+
+   Todo el color sale de aquí. Ningún componente escribe un hex suelto: por eso
+   cambiar de tema es cambiar este bloque y nada más, y por eso el gráfico de
+   evolución sale del color correcto sin tocar su código.
+   =========================================================================== */
+
+:root {
+  /* --- recortes de pantalla (isla dinámica, notch, barra de Android) ------ */
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
+
+  /* --------------------------------- color -------------------------------- */
+  --fondo: #f7f7f5;
+  --sup: #ffffff;
+  --sup2: #fbfbfa;          /* fila resaltada, cabecera de tabla */
+  --sup3: #f1f1ef;          /* rellenos apagados: barras, casillas vacías */
+  --texto: #111113;
+  --texto2: #6f7178;
+  --apagado: #9a9ca3;
+  --borde: #e7e7e4;
+  --borde2: #dcdcd8;        /* borde de un control, un pelín más marcado */
+
+  --acento: #6857e8;
+  --acento-fuerte: #5947d6;
+  --acento-suave: #f0eefe;
+  --acento-borde: #d7d1fb;
+
+  --bien: #2fa36b;
+  --bien-suave: #eaf6f0;
+  --ojo: #d99a27;
+  --ojo-suave: #fbf3e4;
+  --mal: #d9535b;
+  --mal-suave: #fdeded;
+
+  --sobre-acento: #ffffff;
+  --velo: rgba(17, 17, 19, .32);
+
+  /* -------------------------------- forma --------------------------------- */
+  --r: 10px;                /* tarjetas y bloques */
+  --r2: 8px;                /* controles */
+  --r3: 6px;                /* chips y píldoras pequeñas */
+  --rp: 999px;              /* píldora */
+
+  /* Sombras: solo para lo que de verdad flota por encima de la página. */
+  --sh1: 0 1px 2px rgba(17, 17, 19, .04);
+  --sh2: 0 4px 12px -2px rgba(17, 17, 19, .08), 0 2px 4px -2px rgba(17, 17, 19, .04);
+  --sh3: 0 16px 40px -12px rgba(17, 17, 19, .22), 0 4px 12px -4px rgba(17, 17, 19, .1);
+
+  /* ------------------------------- espacio -------------------------------- */
+  --e1: 4px;  --e2: 8px;  --e3: 12px; --e4: 16px;
+  --e5: 24px; --e6: 32px; --e7: 48px;
+
+  /* ------------------------------ tipografía ------------------------------ */
+  --sans: system-ui, -apple-system, 'Segoe UI', Inter, Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  /* ------------------------------- movimiento ------------------------------
+     --t1/--t2 sirven para fundidos de color y fondo: la misma curva de salida
+     vale para cualquier hover. Lo que NO cubrían es un gesto con su propio
+     carácter — confirmar, soltar, entrar/salir de una hoja — así que cada uno
+     tiene su propia pareja duración+curva en vez de reutilizar --t1/--t2. */
+  --t1: 120ms cubic-bezier(.2, 0, 0, 1);
+  --t2: 200ms cubic-bezier(.2, 0, 0, 1);
+
+  --t-toque: 100ms cubic-bezier(.3, 0, .4, 1);           /* botón/fila al pulsar */
+  --t-check: 340ms cubic-bezier(.34, 1.56, .64, 1);       /* casilla: rebote con overshoot */
+  --t-flip: 320ms cubic-bezier(.16, 1, .3, 1);            /* filas reacomodándose sin salto */
+  --t-hoja-entra: 300ms cubic-bezier(.16, 1, .3, 1);      /* hoja abriéndose: entra con calma */
+  --t-hoja-sale: 180ms cubic-bezier(.4, 0, 1, 1);         /* hoja cerrándose: más rápida que al entrar */
+
+  --lateral-ancho: 232px;
+  --columna: 760px;
+
+  color-scheme: light;
+}
+
+/* Oscuro: mismo sistema, no otro diseño. Papel casi negro, superficies que
+   suben de nivel en vez de bajar, y el violeta un punto más claro para que
+   siga leyéndose sobre fondo oscuro.
+
+   Dos vías a propósito: data-tema="auto" sigue al sistema (media query) y
+   data-tema="oscuro" lo fuerza desde el perfil. El atributo lo pone el propio
+   HTML antes de pintar nada, así no hay un fogonazo blanco al abrir. */
+@media (prefers-color-scheme: dark) {
+  :root[data-tema='auto'] {
+    --fondo: #0f0f11;
+    --sup: #17171a;
+    --sup2: #1c1c20;
+    --sup3: #232328;
+    --texto: #f2f2f3;
+    --texto2: #9d9fa8;
+    --apagado: #6e7079;
+    --borde: #26262b;
+    --borde2: #32323a;
+
+    --acento: #8b7bff;
+    --acento-fuerte: #9d90ff;
+    --acento-suave: #1e1b33;
+    --acento-borde: #322c5c;
+
+    --bien: #45c58a;
+    --bien-suave: #14261e;
+    --ojo: #e5b04b;
+    --ojo-suave: #2a2214;
+    --mal: #f0736f;
+    --mal-suave: #2d1719;
+
+    --sobre-acento: #14121f;
+    --velo: rgba(0, 0, 0, .6);
+
+    --sh1: 0 1px 2px rgba(0, 0, 0, .4);
+    --sh2: 0 4px 12px -2px rgba(0, 0, 0, .5), 0 2px 4px -2px rgba(0, 0, 0, .4);
+    --sh3: 0 16px 40px -12px rgba(0, 0, 0, .7), 0 4px 12px -4px rgba(0, 0, 0, .5);
+  }
+}
+
+:root[data-tema='oscuro'] {
+  --fondo: #0f0f11;
+  --sup: #17171a;
+  --sup2: #1c1c20;
+  --sup3: #232328;
+  --texto: #f2f2f3;
+  --texto2: #9d9fa8;
+  --apagado: #6e7079;
+  --borde: #26262b;
+  --borde2: #32323a;
+
+  --acento: #8b7bff;
+  --acento-fuerte: #9d90ff;
+  --acento-suave: #1e1b33;
+  --acento-borde: #322c5c;
+
+  --bien: #45c58a;
+  --bien-suave: #14261e;
+  --ojo: #e5b04b;
+  --ojo-suave: #2a2214;
+  --mal: #f0736f;
+  --mal-suave: #2d1719;
+
+  --sobre-acento: #14121f;
+  --velo: rgba(0, 0, 0, .6);
+
+  --sh1: 0 1px 2px rgba(0, 0, 0, .4);
+  --sh2: 0 4px 12px -2px rgba(0, 0, 0, .5), 0 2px 4px -2px rgba(0, 0, 0, .4);
+  --sh3: 0 16px 40px -12px rgba(0, 0, 0, .7), 0 4px 12px -4px rgba(0, 0, 0, .5);
+
+  color-scheme: dark;
+}
+
+/* En Android-PWA la barra de estado se solapa y env() devuelve 0. */
+.os-android.standalone { --sat: 26px; }
+
+/* --------------------------------- reset ---------------------------------- */
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overscroll-behavior-y: none;
+}
+
+body {
+  background: var(--fondo);
+  color: var(--texto);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 { margin: 0; font-weight: 600; letter-spacing: -.014em; }
+h1 { font-size: 26px; line-height: 1.2; }
+h2 { font-size: 19px; }
+h3 { font-size: 15px; }
+h4 { font-size: 13px; }
+p { margin: 0 0 .7em; }
+
+/* Cifras siempre tabulares: una columna de números que no baila al cambiar. */
+.cifra, .mono, table, input[type='number'], .num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+  font-size: 16px;               /* menos de 16 y iOS hace zoom al enfocar */
+  border-radius: var(--r2);
+}
+button { cursor: pointer; background: none; border: 0; padding: 0; }
+
+/* Los controles se visten AQUÍ, no dentro de .campo: un <select> suelto en una
+   fila de una lista salía blanco sobre blanco en modo oscuro. Todo lo que
+   escriba o elija el usuario tiene el mismo aspecto esté donde esté. */
+input:not([type='checkbox']):not([type='radio']):not([type='file']),
+select, textarea {
+  background: var(--sup);
+  color: var(--texto);
+  border: 1px solid var(--borde2);
+  padding: 8px 10px;
+  max-width: 100%;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--acento);
+  box-shadow: 0 0 0 3px var(--acento-suave);
+}
+input[type='file'] { color: var(--texto2); font-size: 13px; }
+input::placeholder, textarea::placeholder { color: var(--apagado); }
+select { cursor: pointer; }
+
+a { color: var(--acento); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+  border-radius: var(--r3);
+}
+
+/* En táctil no hay hover: los estados de ratón se quedarían pegados al dedo. */
+@media (hover: none) {
+  .fila:hover, .tarjeta:hover, .nav-item:hover { background: inherit; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--borde2); border-radius: 8px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-track { background: transparent; }
+
+.oculto { display: none !important; }
+.sr {
+  position: absolute; width: 1px; height: 1px; overflow: hidden;
+  clip: rect(0 0 0 0); white-space: nowrap;
+}
+
+.bien { color: var(--bien); }
+.mal { color: var(--mal); }
+.ojo { color: var(--ojo); }
+.apag { color: var(--texto2); }

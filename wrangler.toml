@@ -1,0 +1,47 @@
+name = "meta"
+main = "worker/index.js"
+compatibility_date = "2026-08-01"
+
+[assets]
+directory = "./app"
+binding = "ASSETS"
+
+# Límite de peticiones a /api/* por IP. Sin esto, cualquiera que encuentre la
+# URL tiene un proxy gratis a costa de esta cuenta.
+[[unsafe.bindings]]
+name = "LIMITE"
+type = "ratelimit"
+namespace_id = "2002"
+simple = { limit = 100, period = 60 }
+
+# Cuentas, datos de cada usuario y, de ahí, el feed ICS que se suscribe desde
+# Google Calendar / Apple Calendar / Outlook.
+[[kv_namespaces]]
+binding = "META_DATOS"
+id = "bbca17a4a1664cd3bd7204e9de2d7e6a"
+
+# Identidad compartida con bolsa y morning-briefing (mismo correo+contraseña
+# en las tres) — solo para el login por correo, "entrar con Google" sigue
+# siendo local a meta. Service binding, no fetch() a la URL pública.
+[[services]]
+binding = "CUENTAS"
+service = "cuentas"
+
+# META AI. Workers AI ya viene con su cuenta de Cloudflare: no hay clave de API
+# ni cuenta de pago aparte. El modelo es flojo, así que la IA solo redacta y
+# explica — los números (estado académico, prioridades, plan) los calcula el
+# algoritmo de app/js/core/motor.js, que además funciona sin conexión.
+[ai]
+binding = "IA"
+
+# Contenido real de fotos y PDF de apuntes. Antes solo vivían en IndexedDB de
+# cada aparato (ver app/js/core/apuntesdb.js); esto es lo que permite verlos
+# entre aparatos y lo que usa el enlace de carpeta (ver tools/enlace-carpeta.mjs).
+# KV y no R2 a propósito: R2 pide tarjeta en la cuenta (aunque no cobre nada
+# dentro de lo gratis) y él prefirió evitarlo. KV es gratis sin tarjeta, con
+# tope más corto (1 GB, 25 MB por valor) — de sobra para fotos y PDF de
+# apuntes de bachillerato. Si algún día se queda corto, se puede pasar a R2
+# cambiando solo worker/archivos.js.
+[[kv_namespaces]]
+binding = "META_ARCHIVOS"
+id = "2a2729a8e48b4618b9e698edce417304"
