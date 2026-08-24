@@ -103,6 +103,7 @@ function render() {
       <div class="tarjeta"><h3>Google Calendar</h3><div id="bloque-google">${cargandoChico()}</div></div>
       <div class="tarjeta"><h3>Outlook del instituto</h3><div id="bloque-microsoft">${cargandoChico()}</div></div>
       <div class="tarjeta"><h3>Notion</h3><div id="bloque-notion">${cargandoChico()}</div></div>
+      <div class="tarjeta"><h3>NotebookLM</h3><div id="bloque-nblm">${cargandoChico()}</div></div>
       <div class="tarjeta">
         <h3>Enlace de calendario</h3>
         <p class="parrafo chico">Suscríbelo en Calendario de Apple, Google Calendar u Outlook a la vez.
@@ -157,7 +158,7 @@ function render() {
     });
   });
 
-  cargarGoogle(); cargarMicrosoft(); cargarNotion();
+  cargarGoogle(); cargarMicrosoft(); cargarNotion(); cargarNotebookLM();
 }
 
 const cargandoChico = () => '<p class="parrafo chico">Comprobando…</p>';
@@ -366,6 +367,84 @@ async function cargarNotion() {
     el.innerHTML = '<p class="parrafo chico">Notion no está disponible en este momento.</p>';
   }
 }
+
+/* ---------------------------- NotebookLM ------------------------------------
+   No hay API de NotebookLM para cuentas personales (solo la de Gemini
+   Notebook Enterprise, que va por Google Cloud). Lo que sí existe: desde el 26
+   de mayo de 2026, NotebookLM mantiene al día SOLO las fuentes que son
+   Documentos de Google. Así que META escribe un documento por asignatura en su
+   Drive y él lo añade UNA vez a su cuaderno — a partir de ahí se actualiza
+   solo. Ver worker/notebooklm.js. */
+async function cargarNotebookLM() {
+  const el = document.querySelector('#bloque-nblm');
+  if (!el) return;
+  try {
+    const e = await sesion.pedir('/api/notebooklm/estado');
+
+    if (!e.conectado) {
+      el.innerHTML = `<p class="parrafo chico">Un documento por asignatura en tu Drive —con tu
+        temario, tus apuntes y tus tarjetas— para añadirlo como fuente en NotebookLM. Se
+        actualiza solo cuando apuntas algo aquí.</p>
+        <p class="parrafo chico">Hace falta conectar antes tu cuenta de Google, ahí arriba.</p>`;
+      return;
+    }
+
+    if (e.hayQueReconectar) {
+      el.innerHTML = `<p class="parrafo chico">Tu conexión con Google es de antes de esto y no
+        tiene permiso para escribir en Drive. Vuelve a conectarla y se pedirá.</p>
+        <a class="boton ancho" href="/api/google/conectar">Volver a conectar Google</a>`;
+      return;
+    }
+
+    const filas = e.asignaturas.map(a => a.url
+      ? `<a class="fila" href="${escapa(a.url)}" target="_blank" rel="noopener">
+           <span class="izq"><span class="t1">${escapa(a.asignatura)}</span>
+           <span class="t2">${a.alDia ? 'Al día' : 'Pendiente de actualizar'} · ${escapa(desdeCuando(a.ultima))}</span></span>
+         </a>`
+      : `<div class="fila"><span class="izq"><span class="t1">${escapa(a.asignatura)}</span>
+           <span class="t2">Todavía sin documento</span></span></div>`).join('');
+
+    el.innerHTML = `<p class="parrafo chico">Un documento por asignatura en tu Drive, con tu
+      temario, tus apuntes y tus tarjetas de repaso. Añádelo una vez a un cuaderno de
+      NotebookLM (Nuevo cuaderno → Google Drive) y a partir de ahí se actualiza solo:
+      es el único tipo de fuente que NotebookLM sigue.</p>
+      ${filas ? `<div class="lista" data-mt>${filas}</div>` : `<p class="parrafo chico">
+        Cuando tengas temas o apuntes en una asignatura, aparecerá aquí su documento.</p>`}
+      ${e.ultimoFallo ? `<p class="parrafo chico mal" data-mt>${escapa(textoFallo(e.ultimoFallo))}</p>` : ''}
+      <button class="boton ancho" data-accion="nblm-sincronizar" data-mt>Actualizar ahora</button>`;
+  } catch {
+    el.innerHTML = `<p class="parrafo chico">No se pudo comprobar ahora mismo.</p>
+      <button class="boton fantasma ancho" data-accion="nblm-reintentar">Reintentar</button>`;
+  }
+}
+
+/* Los fallos de Drive que de verdad pasan son dos, y ninguno se arregla
+   reintentando: hay que hacer algo concreto. Decir "error 403" no ayudaría. */
+function textoFallo(f) {
+  if (f.motivo === 'api-apagada') {
+    return 'Falta encender la API de Google Drive en tu proyecto de Google Cloud. Es un interruptor, y tarda un minuto en hacer efecto.';
+  }
+  if (f.motivo === 'reconectar') return 'Vuelve a conectar Google para dar permiso de Drive.';
+  if (f.motivo === 'espera') return 'Google está limitando las peticiones. Se reintenta solo más tarde.';
+  return f.detalle || 'No se pudo escribir en Drive.';
+}
+
+accion('nblm-reintentar', cargarNotebookLM);
+
+accion('nblm-sincronizar', async (d, el) => {
+  el.disabled = true;
+  el.textContent = 'Actualizando…';
+  try {
+    const r = await sesion.pedir('/api/notebooklm/sincronizar', { metodo: 'POST' });
+    const n = r.actualizados?.length || 0;
+    aviso(n ? `${n} documento${n === 1 ? '' : 's'} al día` : 'Ya estaba todo al día');
+  } catch (err) {
+    aviso(err?.message || 'No se pudo actualizar', 'mal');
+  } finally {
+    el.disabled = false;
+    cargarNotebookLM();
+  }
+});
 
 accion('notion-conectar', async (d, el) => {
   el.disabled = true;

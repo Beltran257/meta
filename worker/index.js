@@ -19,6 +19,7 @@ import * as microsoft from './microsoft.js';
 import * as notion from './notion.js';
 import * as ia from './ia.js';
 import * as archivos from './archivos.js';
+import * as notebooklm from './notebooklm.js';
 import { extraerTexto } from './ocr.js';
 import { resumenBriefing } from './briefing.js';
 
@@ -194,6 +195,9 @@ async function apiAuth(request, url, env, ctx) {
   if (ruta === 'borrar') {
     // Antes de borrar nada, se corta con los proveedores: si no, quedarían
     // eventos suyos en Google/Outlook sin nadie que pudiera retirarlos.
+    // Los dossieres van primero: retirarlos necesita el token de Google, que
+    // desconectar() revoca. Al revés se quedarían huérfanos en su Drive.
+    try { await notebooklm.retirar(env, usuario.espacio); } catch { /* seguimos */ }
     for (const mod of [google, microsoft, notion]) {
       try { await mod.desconectar(env, usuario.espacio); } catch { /* seguimos */ }
     }
@@ -234,6 +238,13 @@ async function apiDatos(request, env, ctx, usuario) {
     }
     if (env.NOTION_TOKEN) {
       ctx.waitUntil(notion.reconciliar(env, codigo, fusionado).catch(e => console.log('notion-sync', String(e.message).slice(0, 150))));
+    }
+    // Los dossieres que sigue NotebookLM. Sin forzar: solo reescribe las
+    // asignaturas cuyo contenido ha cambiado de verdad, y como mucho cada 10
+    // minutos (ver notebooklm.js). Es lo que hace que apuntar algo aquí
+    // aparezca solo en su cuaderno, sin darle a ningún botón.
+    if (env.GOOGLE_CLIENT_ID) {
+      ctx.waitUntil(notebooklm.sincronizar(env, codigo).catch(e => console.log('nblm-sync', String(e.message).slice(0, 150))));
     }
     return json(fusionado, 200);
   }
@@ -307,6 +318,12 @@ function fabricaProveedor(prov, mod, redirectUri) {
       return json(await mod.estadoConexion(env, usuario.espacio), 200);
     },
     async desconectar(env, usuario) {
+      // Igual que al borrar la cuenta: los documentos que META creó en su
+      // Drive se retiran ANTES de revocar el token, que es lo que da acceso
+      // para borrarlos.
+      if (prov === 'google') {
+        try { await notebooklm.retirar(env, usuario.espacio); } catch { /* seguimos */ }
+      }
       await mod.desconectar(env, usuario.espacio);
       return json({ ok: true }, 200);
     },
@@ -539,6 +556,7 @@ const ESCRIBEN = [
   '/api/google/desconectar', '/api/microsoft/desconectar',
   '/api/notion/conectar', '/api/notion/desconectar',
   '/api/archivos/subir', '/api/archivos/borrar',
+  '/api/notebooklm/sincronizar',
 ];
 
 export default {
@@ -600,6 +618,14 @@ export default {
       if (url.pathname === '/api/archivos/lista') return await apiArchivosLista(env, usuario);
       if (url.pathname === '/api/archivos/borrar') return await apiArchivosBorrar(request, env, usuario);
       if (url.pathname.startsWith('/api/archivos/')) return await apiArchivosDescarga(url, env, usuario);
+      if (url.pathname === '/api/notebooklm/estado') return json(await notebooklm.estado(env, usuario.espacio), 200);
+      if (url.pathname === '/api/notebooklm/sincronizar') {
+        if (request.method !== 'POST') return json({ error: 'metodo no permitido' }, 405);
+        const r = await notebooklm.sincronizar(env, usuario.espacio, { forzar: true });
+        // `error` es lo que la app enseña tal cual (ver core/sesion.js), así
+        // que ahí va la frase, no el código interno — que viaja en `motivo`.
+        return r.error ? json({ error: r.detalle || r.error, motivo: r.error }, 409) : json(r, 200);
+      }
       if (url.pathname === '/api/google/estado') return await apiGoogle.estado(env, usuario);
       if (url.pathname === '/api/google/desconectar') return await apiGoogle.desconectar(env, usuario);
       if (url.pathname === '/api/microsoft/estado') return await apiMicrosoft.estado(env, usuario);

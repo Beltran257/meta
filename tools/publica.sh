@@ -26,6 +26,11 @@ node tools/audita.mjs
 # en que el calendario no sincroniza. Sin red, pasa siempre.
 node tools/prueba-ics.mjs > /dev/null || { echo '❌ el feed de calendario falla'; exit 1; }
 echo '✅ feed de calendario correcto'
+# Lo que acaba dentro del documento que NotebookLM lee como fuente. Lo que más
+# vigila: que no se cuele contenido de una asignatura en el dossier de otra —
+# eso daría respuestas mezcladas sin que se note desde ningún sitio.
+node tools/prueba-dossier.mjs > /dev/null || { echo '❌ el dossier de NotebookLM falla'; exit 1; }
+echo '✅ dossier de NotebookLM correcto'
 npx wrangler deploy 2>&1 | tail -3
 
 URL="https://meta.beltranfersan.workers.dev"

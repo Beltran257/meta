@@ -1,7 +1,7 @@
 /* Auditoría del proyecto. Vive en el repo (no en un scratchpad que se borra).
    Uso:  node tools/audita.mjs                                                */
 
-import { readdirSync, statSync, readFileSync, writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { execFileSync } from 'node:child_process';
@@ -212,6 +212,29 @@ const verEnHtml = html.match(/arranque\.js\?v=([^'"]+)/)?.[1];
 (verRescate === ver && verEnHtml === ver)
   ? bien(`El rescate de versión va a la par (${ver}): nadie se queda con el JS viejo`)
   : mal(`Rescate descuadrado: arranque.js=${verRescate} index.html=${verEnHtml} app=${ver}`);
+
+/* --- 5d. NotebookLM: el permiso de Drive y la cabecera anti-CSRF ------------
+   Dos fallos que no dan la cara al escribirlos:
+
+   · Si worker/notebooklm.js pide a Drive sin que el SCOPE de google.js lleve
+     drive.file, Google responde 403 y el usuario solo ve "no se pudo
+     actualizar". Peor todavía: la app parecería conectada, porque el
+     calendario seguiría funcionando.
+   · Si la ruta que escribe no está en ESCRIBEN, se queda sin la cabecera
+     X-Meta y el propio Worker la rechaza con un 400 que parece otra cosa. */
+const nblm = existsSync(join(RAIZ, 'worker/notebooklm.js'));
+if (nblm) {
+  const g = readFileSync(join(RAIZ, 'worker/google.js'), 'utf8');
+  g.includes('auth/drive.file')
+    ? bien('El permiso de Drive está pedido: los dossieres de NotebookLM se pueden escribir')
+    : mal('worker/notebooklm.js escribe en Drive pero el SCOPE de google.js no pide drive.file (403 sin explicación)');
+
+  const idx = readFileSync(join(RAIZ, 'worker/index.js'), 'utf8');
+  const enEscriben = /const ESCRIBEN = \[[^\]]*\/api\/notebooklm\/sincronizar/s.test(idx);
+  enEscriben
+    ? bien('La ruta que reescribe los dossieres exige la cabecera X-Meta')
+    : mal('/api/notebooklm/sincronizar no está en ESCRIBEN: el propio Worker la rechazaría con un 400');
+}
 
 /* --- 6. fechas locales, no UTC --------------------------------------------- */
 for (const f of archivos.filter(f => f.endsWith('.js'))) {

@@ -9,7 +9,18 @@
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 const CAL_BASE = 'https://www.googleapis.com/calendar/v3';
-const SCOPE = 'https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/userinfo.email';
+/* calendar.events -> exámenes y entregas en su calendario.
+   drive.file      -> los dossieres por asignatura que NotebookLM sigue.
+                      Es el scope de Drive MÁS restringido que existe: la app
+                      solo puede tocar los archivos que ella misma ha creado,
+                      no ve nada más del Drive de nadie. Google lo clasifica
+                      como no sensible, así que tampoco dispara su revisión
+                      larga de scopes restringidos. */
+const SCOPE = [
+  'https://www.googleapis.com/auth/calendar.events',
+  'https://www.googleapis.com/auth/drive.file',
+  'https://www.googleapis.com/auth/userinfo.email',
+].join(' ');
 
 export function urlAutorizacion(env, redirectUri, state) {
   const u = new URL('https://accounts.google.com/o/oauth2/v2/auth');
@@ -191,8 +202,22 @@ export async function guardarConexion(env, codigo, tokens, email) {
     access_token: tokens.access_token,
     expira: Date.now() + Math.max(0, (tokens.expires_in || 3600) - 60) * 1000,
     email,
+    // Google devuelve aquí lo que el usuario CONCEDIÓ de verdad, que no tiene
+    // por qué ser todo lo que se pidió. Se guarda para poder decirle "hay que
+    // reconectar" en vez de fallar con un 403 críptico cuando una conexión
+    // vieja no tenga todavía el permiso de Drive.
+    scope: tokens.scope || '',
     ultima: Date.now(),
   }));
+}
+
+/** ¿Esta conexión trae ya el permiso de Drive? Las conexiones hechas antes de
+    agosto de 2026 no lo tienen: hay que volver a conectar (el flujo ya fuerza
+    prompt=consent, así que reconectar vuelve a pedir permisos). */
+export async function tieneDrive(env, codigo) {
+  const g = await env.META_DATOS.get(`google:${codigo}`, 'json');
+  if (!g?.refresh_token) return false;
+  return String(g.scope || '').includes('drive.file');
 }
 
 export async function desconectar(env, codigo) {
@@ -201,4 +226,105 @@ export async function desconectar(env, codigo) {
   if (g?.refresh_token) await revocar(g.refresh_token);
   await env.META_DATOS.delete(clave);
   await env.META_DATOS.delete(`gmap:${codigo}`);
+}
+
+/* ===========================================================================
+   DRIVE — los dossieres que NotebookLM sigue.
+
+   POR QUÉ UN DOCUMENTO DE GOOGLE Y NO UN PDF, UN .txt NI UNA URL:
+   desde el 26 de mayo de 2026 NotebookLM (Gemini Notebook) mantiene al día
+   SOLO las fuentes que son Documentos, Hojas o Presentaciones de Google. Todo
+   lo demás —páginas web, PDF, archivos subidos, YouTube— se queda congelado
+   en el momento en que se añade y hay que volver a subirlo a mano. Así que un
+   documento de verdad es lo único que consigue que él apunte algo en META y
+   su cuaderno de NotebookLM se entere solo.
+
+   Tampoco vale dejar caer un archivo en la carpeta de Drive del ordenador:
+   Drive para escritorio sube tal cual, un .txt se queda en .txt (comprobado
+   el 25 ago 2026), y NotebookLM lo trataría como archivo subido, sin seguirlo.
+
+   Se sube HTML, no texto plano: al convertirlo, Google respeta los títulos y
+   las listas, y NotebookLM cita "según el apartado X" en vez de soltar un
+   muro de texto.
+   =========================================================================== */
+
+const DRIVE_SUBIDA = 'https://www.googleapis.com/upload/drive/v3/files';
+const DRIVE_API = 'https://www.googleapis.com/drive/v3/files';
+const MIME_DOC = 'application/vnd.google-apps.document';
+const LIMITE = '\r\n--meta-dossier\r\n';
+const CIERRE = '\r\n--meta-dossier--\r\n';
+
+/** Traduce los fallos de Google a algo accionable. Un 403 aquí casi siempre
+    es una de dos cosas muy concretas, y decir "error 403" no ayuda a nadie. */
+function motivoDrive(status, texto) {
+  const t = String(texto || '');
+  if (/accessNotConfigured|has not been used in project|SERVICE_DISABLED/i.test(t)) {
+    return { motivo: 'api-apagada', detalle: 'La API de Google Drive está apagada en el proyecto de Google Cloud.' };
+  }
+  if (status === 401 || /insufficientPermissions|insufficient authentication|invalid_grant/i.test(t)) {
+    return { motivo: 'reconectar', detalle: 'La conexión con Google no tiene todavía permiso de Drive.' };
+  }
+  if (status === 429 || /rateLimitExceeded|userRateLimitExceeded/i.test(t)) {
+    return { motivo: 'espera', detalle: 'Google está limitando las peticiones; se reintenta luego.' };
+  }
+  return { motivo: 'fallo', detalle: t.slice(0, 200) || `error ${status}` };
+}
+
+function cuerpoMultiparte(metadatos, html) {
+  return LIMITE
+    + 'Content-Type: application/json; charset=UTF-8\r\n\r\n'
+    + JSON.stringify(metadatos)
+    + LIMITE
+    + 'Content-Type: text/html; charset=UTF-8\r\n\r\n'
+    + html
+    + CIERRE;
+}
+
+const cabeceras = token => ({
+  Authorization: `Bearer ${token}`,
+  'Content-Type': 'multipart/related; boundary=meta-dossier',
+});
+
+/** Crea el documento la primera vez y lo ACTUALIZA en las siguientes. Es
+    importante que sea el mismo archivo siempre: si se creara uno nuevo cada
+    vez, la fuente que él añadió al cuaderno se quedaría apuntando al viejo y
+    dejaría de actualizarse — justo lo que se quiere evitar. */
+export async function guardarDossier(env, codigo, { fileId, nombre, html }) {
+  const token = await accessTokenDe(env, codigo);
+  if (!token) return { error: { motivo: 'sin-conexion', detalle: 'Google no está conectado.' } };
+
+  const nuevo = !fileId;
+  const url = nuevo
+    ? `${DRIVE_SUBIDA}?uploadType=multipart&fields=id,name,webViewLink`
+    : `${DRIVE_SUBIDA}/${fileId}?uploadType=multipart&fields=id,name,webViewLink`;
+
+  const meta = nuevo ? { name: nombre, mimeType: MIME_DOC } : { name: nombre };
+  let r = await fetch(url, { method: nuevo ? 'POST' : 'PATCH', headers: cabeceras(token), body: cuerpoMultiparte(meta, html) });
+
+  // Si el documento ya no existe (lo borró él desde Drive), se crea otra vez
+  // en vez de dejar la sincronización rota para siempre.
+  if (!nuevo && (r.status === 404 || r.status === 403)) {
+    const t = await r.text();
+    if (/notFound|File not found/i.test(t)) {
+      r = await fetch(`${DRIVE_SUBIDA}?uploadType=multipart&fields=id,name,webViewLink`, {
+        method: 'POST', headers: cabeceras(token),
+        body: cuerpoMultiparte({ name: nombre, mimeType: MIME_DOC }, html),
+      });
+    } else {
+      return { error: motivoDrive(r.status, t) };
+    }
+  }
+
+  if (!r.ok) return { error: motivoDrive(r.status, await r.text()) };
+  const d = await r.json();
+  return { fileId: d.id, url: d.webViewLink || `https://docs.google.com/document/d/${d.id}/edit` };
+}
+
+/** Se llama al desconectar Google y al borrar la cuenta: los documentos los
+    creó META, así que también los retira. */
+export async function borrarDossier(env, codigo, fileId) {
+  const token = await accessTokenDe(env, codigo);
+  if (!token || !fileId) return;
+  await fetch(`${DRIVE_API}/${fileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+    .catch(() => { /* si ya no está, mejor */ });
 }
