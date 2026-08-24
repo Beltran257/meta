@@ -164,6 +164,26 @@ async function subirCambios(token, manifest, carpetasAsig) {
 
 /* -------------------------------- bajar nuevos ------------------------------ */
 
+/** Nombre REAL de la subcarpeta de evaluación que ya existe en disco, con
+    los espacios y acentos que tenga de verdad — buscándola por el MISMO
+    criterio de normalización que ya usa la subida (normaliza() + el mapa
+    CARPETA_A_EVAL, ver archivosLocales()). Antes esta parte usaba a ciegas
+    el nombre canónico de EVAL_A_CARPETA para crear la carpeta de destino;
+    sus carpetas reales llevan espacios al final ("1ª EVALUACIÓN " en
+    ECONOMÍA, con dos espacios en FAG, etc.), así que `mkdir` creaba una
+    carpeta NUEVA con el nombre exacto en vez de usar la que ya tenía —
+    "me crea una nueva carpeta" es justo este bug. Si de verdad no existe
+    ninguna carpeta de esa evaluación todavía, se cae al nombre canónico
+    (así la primera vez se crea bien, y a partir de ahí se reutiliza). */
+async function carpetaEvalReal(dirAsig, evaluacion) {
+  const entradas = await readdir(dirAsig, { withFileTypes: true }).catch(() => []);
+  for (const d of entradas) {
+    if (!d.isDirectory() || d.name.startsWith('.')) continue;
+    if (CARPETA_A_EVAL[normaliza(d.name)] === String(evaluacion)) return d.name;
+  }
+  return EVAL_A_CARPETA[evaluacion] || EVAL_A_CARPETA[1];
+}
+
 async function nombreLibre(dir, nombre) {
   const ext = path.extname(nombre), base = path.basename(nombre, ext);
   let candidato = nombre, n = 1;
@@ -180,8 +200,9 @@ async function bajarNuevos(token, manifest, carpetasAsig) {
     if (idsConocidos.has(a.id)) continue; // ya lo subimos nosotros o ya lo bajamos antes
     const nombreCarpeta = carpetasAsig.get(a.asignaturaId);
     if (!nombreCarpeta) continue; // asignatura sin carpeta correspondiente en disco
-    const carpetaEval = EVAL_A_CARPETA[a.evaluacion] || EVAL_A_CARPETA[1];
-    const dirDestino = path.join(CARPETA, nombreCarpeta, carpetaEval);
+    const rutaAsig = path.join(CARPETA, nombreCarpeta);
+    const carpetaEval = await carpetaEvalReal(rutaAsig, a.evaluacion);
+    const dirDestino = path.join(rutaAsig, carpetaEval);
 
     let bytes;
     try {
