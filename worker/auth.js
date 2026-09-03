@@ -42,9 +42,20 @@ export const nombreLimpio = n => {
 };
 
 /* ------------------------- llamadas al Worker de identidad ------------------ */
-async function cuentasFetch(env, ruta, cuerpo) {
+/* `ip` viaja aparte, en X-Origen-IP: por service binding no llega ninguna
+   cabecera del navegador, así que sin esto `cuentas` apuntaba TODOS los
+   intentos fallidos —los de aquí, los de bolsa y los de morning-briefing—
+   bajo la misma etiqueta 'sin-ip'. El cerrojo por IP no frenaba a nadie, y
+   ocho fallos de un desconocido bloqueaban la entrada de Beltrán 15 minutos. */
+async function cuentasFetch(env, ruta, cuerpo, ip) {
   const r = await env.CUENTAS.fetch(`${CUENTAS}${ruta}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cuerpo || {}),
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(ip ? { 'X-Origen-IP': ip } : {}),
+      ...(env.CUENTAS_SECRETO ? { 'X-Cuentas-Secreto': env.CUENTAS_SECRETO } : {}),
+    },
+    body: JSON.stringify(cuerpo || {}),
   }).catch(() => null);
   if (!r) return { error: 'No se pudo contactar con el servicio de cuentas.', status: 503 };
   const d = await r.json().catch(() => null);
@@ -170,11 +181,11 @@ export async function cerrarSesion(request, env) {
 }
 
 /* --------------------------------- registro --------------------------------- */
-export async function registrar(env, { email, clave, nombre, codigoImportar, recordar }) {
-  let r = await cuentasFetch(env, '/api/identidad/registrar', { email, clave, nombre });
+export async function registrar(env, { email, clave, nombre, codigoImportar, recordar, ip }) {
+  let r = await cuentasFetch(env, '/api/identidad/registrar', { email, clave, nombre }, ip);
   let codigoRecuperacion = r.codigoRecuperacion;
   if (r.error) {
-    const intento = await cuentasFetch(env, '/api/identidad/entrar', { email, clave });
+    const intento = await cuentasFetch(env, '/api/identidad/entrar', { email, clave }, ip);
     if (intento.error) return { error: r.error, status: r.status };
     r = intento; codigoRecuperacion = null;
   }
@@ -183,8 +194,8 @@ export async function registrar(env, { email, clave, nombre, codigoImportar, rec
 }
 
 /* ---------------------------------- entrar --------------------------------- */
-export async function entrar(env, { email, clave, recordar }) {
-  const r = await cuentasFetch(env, '/api/identidad/entrar', { email, clave });
+export async function entrar(env, { email, clave, recordar, ip }) {
+  const r = await cuentasFetch(env, '/api/identidad/entrar', { email, clave }, ip);
   if (r.error) return { error: r.error, status: r.status };
   const { usuario } = await espacioDeIdentidad(env, { uid: r.usuario.uid, email: r.usuario.email, nombre: r.usuario.nombre });
   return { usuario, sesion: await crearSesion(env, usuario.id, recordar) };
@@ -229,8 +240,8 @@ export async function cambiarClave(env, usuario, { claveActual, claveNueva }) {
   return { usuario, sesion: await crearSesion(env, usuario.id, true) };
 }
 
-export async function recuperar(env, { email, codigoRecuperacion, clave }) {
-  const r = await cuentasFetch(env, '/api/identidad/recuperar', { email, codigoRecuperacion, clave });
+export async function recuperar(env, { email, codigoRecuperacion, clave, ip }) {
+  const r = await cuentasFetch(env, '/api/identidad/recuperar', { email, codigoRecuperacion, clave }, ip);
   if (r.error) return { error: r.error, status: r.status };
   const { usuario } = await espacioDeIdentidad(env, { uid: r.usuario.uid, email: r.usuario.email, nombre: r.usuario.nombre });
   usuario.generacion = (usuario.generacion || 1) + 1;

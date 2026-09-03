@@ -22,6 +22,7 @@ import * as archivos from './archivos.js';
 import * as notebooklm from './notebooklm.js';
 import { extraerTexto } from './ocr.js';
 import { resumenBriefing } from './briefing.js';
+import { historicoSalud } from './historico.js';
 
 const ORIGEN = 'https://meta.beltranfersan.workers.dev';
 
@@ -104,7 +105,13 @@ async function apiAuth(request, url, env, ctx) {
   if (ruta === 'google') {
     if (!env.GOOGLE_CLIENT_ID) return json({ error: 'Google no está configurado' }, 503);
     const recordar = url.searchParams.get('recordar') === '1' ? '1' : '0';
-    return redirigir(google.urlLogin(env, `${ORIGEN}/api/oauth/google/callback`, `login${recordar}:${crypto.randomUUID()}`));
+    /* El state llevaba un UUID al azar, pero NADIE lo comprobaba a la vuelta:
+       bastaba con `login1:` y cualquier cosa detrás. Ahora se guarda igual que
+       el de conectar el calendario, y la vuelta lo canjea — sin eso, un enlace
+       preparado por otro podía dejar la sesión de Beltrán abierta con LA CUENTA
+       DE GOOGLE DEL ATACANTE, y todo lo que apuntara después iría a parar ahí. */
+    const estado = await nuevoEstadoOAuth(env, 'login', null);
+    return redirigir(google.urlLogin(env, `${ORIGEN}/api/oauth/google/callback`, `login${recordar}:${estado}`));
   }
 
   if (request.method !== 'POST') return json({ error: 'metodo no permitido' }, 405);
@@ -123,7 +130,7 @@ async function apiAuth(request, url, env, ctx) {
 
     const r = await auth.registrar(env, {
       email, clave: datos.clave, nombre: datos.nombre,
-      codigoImportar, recordar: !!datos.recordar,
+      codigoImportar, recordar: !!datos.recordar, ip,
     });
     if (r.error) return json({ error: r.error }, r.status);
 
@@ -284,6 +291,44 @@ async function apiIcs(codigoConExtension, env) {
 const REDIRECT_GOOGLE = `${ORIGEN}/api/oauth/google/callback`;
 const REDIRECT_MS = `${ORIGEN}/api/oauth/microsoft/callback`;
 
+/* ------------------------- el `state` de OAuth -----------------------------
+   ANTES el state era, literalmente, `cal:<codigo de espacio>`. Eso significa
+   que quien conociera un código de espacio —y ese código va a la vista en la
+   URL del feed ICS, que se pega en Google Calendar o en Outlook— podía
+   montarse él mismo la URL de consentimiento de Google con el espacio de otro
+   dentro, aceptar con SU PROPIA cuenta de Google, y quedarse con el calendario
+   de esa persona conectado al espacio ajeno: a partir de ahí, los exámenes y
+   las tareas de meta se iban copiando solas a un calendario que no es el suyo.
+
+   Ahora el state es un número al azar de un solo uso, guardado en KV con el
+   espacio al que pertenece y con diez minutos de vida. Quien no haya pasado
+   por /api/google/conectar (que sí exige sesión) no tiene ninguno válido, y
+   uno usado no vale dos veces. */
+const TTL_ESTADO_OAUTH = 600;
+const kEstadoOAuth = s => `oauth:estado:${s}`;
+const RE_ESTADO_OAUTH = /^[0-9a-f]{32}$/;
+
+async function nuevoEstadoOAuth(env, prov, espacio) {
+  const s = [...crypto.getRandomValues(new Uint8Array(16))]
+    .map(b => b.toString(16).padStart(2, '0')).join('');
+  await env.META_DATOS.put(kEstadoOAuth(s), JSON.stringify({ prov, espacio, creado: Date.now() }),
+    { expirationTtl: TTL_ESTADO_OAUTH });
+  return s;
+}
+
+/** Canjea el state por el espacio al que pertenece, y lo quema: un mismo
+    state no puede servir dos veces. Devuelve null si no vale. */
+async function canjearEstadoOAuth(env, prov, s) {
+  if (!RE_ESTADO_OAUTH.test(String(s || ''))) return null;
+  const guardado = await env.META_DATOS.get(kEstadoOAuth(s), 'json').catch(() => null);
+  await env.META_DATOS.delete(kEstadoOAuth(s)).catch(() => {});
+  if (!guardado || guardado.prov !== prov) return null;
+  // En el flujo de "entrar con Google" no hay espacio todavía (la cuenta puede
+  // ni existir): lo que se comprueba es solo que el state sea nuestro y nuevo.
+  if (prov === 'login') return true;
+  return codigoValido(guardado.espacio) ? guardado.espacio : null;
+}
+
 function fabricaProveedor(prov, mod, redirectUri) {
   return {
     /** Conectar es una NAVEGACIÓN (un <a href>), no un fetch: el flujo OAuth
@@ -292,15 +337,16 @@ function fabricaProveedor(prov, mod, redirectUri) {
     async conectar(request, env) {
       const usuario = await auth.usuarioDe(request, env);
       if (!usuario) return redirigir(`${ORIGEN}/?sesion=caducada`);
-      return redirigir(mod.urlAutorizacion(env, redirectUri, `cal:${usuario.espacio}`));
+      const estado = await nuevoEstadoOAuth(env, prov, usuario.espacio);
+      return redirigir(mod.urlAutorizacion(env, redirectUri, `cal:${estado}`));
     },
     async callback(url, env) {
       const state = url.searchParams.get('state') || '';
-      const codigo = normaliza(state.replace(/^cal:/, ''));
       const code = url.searchParams.get('code');
 
       if (url.searchParams.get('error')) return redirigir(`${ORIGEN}/?${prov}=cancelado`);
-      if (!codigoValido(codigo) || !code) return redirigir(`${ORIGEN}/?${prov}=error`);
+      const codigo = await canjearEstadoOAuth(env, prov, state.replace(/^cal:/, ''));
+      if (!codigo || !code) return redirigir(`${ORIGEN}/?${prov}=error`);
 
       try {
         const tokens = await mod.intercambiarCodigo(env, code, redirectUri);
@@ -344,6 +390,11 @@ async function callbackGoogle(url, env) {
   const recordar = state.startsWith('login1');
   const code = url.searchParams.get('code');
   if (url.searchParams.get('error') || !code) return redirigir(`${ORIGEN}/?entrar=cancelado`);
+  // El state tiene que ser uno que HAYA EMITIDO esta app, y de un solo uso.
+  // El state es `login0:<32 hex>` o `login1:<32 hex>`: lo de después de los dos puntos.
+  if (!(await canjearEstadoOAuth(env, 'login', state.slice(state.indexOf(':') + 1)))) {
+    return redirigir(`${ORIGEN}/?entrar=error`);
+  }
 
   try {
     const tokens = await google.intercambiarCodigo(env, code, REDIRECT_GOOGLE);
@@ -393,6 +444,11 @@ async function apiNotion(url, env, usuario) {
    =========================================================================== */
 const RE_ID_APUNTE = /^p[0-9a-z]+$/;
 
+// Los únicos tipos con los que se puede volver a servir una foto de apuntes.
+// Cualquier otra cosa se guarda igual, pero se sirve como jpeg.
+const MIME_FOTO = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif']);
+const mimeDeFoto = m => (MIME_FOTO.has(String(m || '').toLowerCase()) ? String(m).toLowerCase() : 'image/jpeg');
+
 async function apiArchivosSubir(request, env, usuario, ctx) {
   if (!env.META_ARCHIVOS) return json({ error: 'almacenamiento de archivos no disponible' }, 503);
 
@@ -416,7 +472,13 @@ async function apiArchivosSubir(request, env, usuario, ctx) {
   if (archivos.demasiadoGrande(bytes.byteLength)) return json({ error: 'archivo demasiado grande' }, 413);
 
   const espacio = usuario.espacio;
-  const mime = tipo === 'pdf' ? 'application/pdf' : (request.headers.get('X-Meta-Mime') || 'image/jpeg');
+  /* El MIME lo elegía el cliente sin filtro: subiendo un archivo con
+     `X-Meta-Mime: text/html` se conseguía que meta lo sirviera DESDE SU PROPIO
+     DOMINIO como página web. Y esa respuesta sale del Worker, no de los
+     archivos estáticos, así que no lleva la CSP de app/_headers: era una
+     página con permiso para hacer lo que quisiera dentro de la sesión. Ahora
+     solo entran los tipos de imagen que la app usa de verdad. */
+  const mime = tipo === 'pdf' ? 'application/pdf' : mimeDeFoto(request.headers.get('X-Meta-Mime'));
   await archivos.subir(env, espacio, id, bytes, mime);
   await archivos.registrarApunte(env, espacio, {
     id, tipo, titulo, asignaturaId, evaluacion, fecha, r2: true, actualizado: Date.now(),
@@ -457,11 +519,21 @@ async function apiArchivosDescarga(url, env, usuario) {
   if (!RE_ID_APUNTE.test(id)) return malaPeticion('id');
   const { value, metadata } = await archivos.leer(env, usuario.espacio, id);
   if (!value) return new Response('no encontrado', { status: 404 });
+  const guardado = metadata?.contentType || '';
+  // Cinturón y tirantes: lo que ya estuviera en KV con un tipo raro (subido
+  // antes del filtro de arriba) tampoco se sirve como tal.
+  const tipo = guardado === 'application/pdf' ? 'application/pdf'
+    : MIME_FOTO.has(guardado) ? guardado : 'application/octet-stream';
   return new Response(value, {
     status: 200,
     headers: {
       ...SEGURIDAD,
-      'Content-Type': metadata?.contentType || 'application/octet-stream',
+      'Content-Type': tipo,
+      // Esta respuesta la arma el Worker, así que NO hereda la CSP de
+      // app/_headers. Se le pone la suya: aunque algún día se colara un
+      // archivo con HTML dentro, no podría cargar ni ejecutar nada.
+      'Content-Security-Policy': "default-src 'none'; sandbox",
+      'X-Content-Type-Options': 'nosniff',
       'Cache-Control': 'private, max-age=3600',
     },
   });
@@ -540,7 +612,16 @@ async function apiInternoBackup(request, env) {
   let cursor;
   do {
     const pagina = await env.META_DATOS.list(cursor ? { cursor } : {});
-    for (const k of pagina.keys) datos[k.name] = await env.META_DATOS.get(k.name);
+    /* En tandas de 25 a la vez, no una clave detrás de otra. Con las claves
+       de hoy son unos segundos de diferencia; el problema es que esto lo
+       llama el cron nocturno de morning-briefing para las CINCO apps seguidas
+       dentro de la misma invocación, y una copia que se pasa de tiempo no
+       avisa: simplemente no existe esa noche. */
+    for (let i = 0; i < pagina.keys.length; i += 25) {
+      const tanda = pagina.keys.slice(i, i + 25);
+      const valores = await Promise.all(tanda.map(k => env.META_DATOS.get(k.name).catch(() => null)));
+      tanda.forEach((k, j) => { datos[k.name] = valores[j]; });
+    }
     cursor = pagina.list_complete ? null : pagina.cursor;
   } while (cursor);
   return json({ app: 'meta', generado: new Date().toISOString(), datos }, 200);
@@ -612,6 +693,19 @@ export default {
       if (url.pathname === '/api/mi/briefing') {
         const buzon = await leerBuzon(env.META_DATOS, usuario.espacio);
         return json({ briefing: resumenBriefing(buzon) }, 200);
+      }
+      // /api/mi/historico-salud -> examen/tareas/horas de clase/minutos de
+      // estudio por fecha, para que Salud contraste su sueño (siempre por
+      // Bearer del testigo compartido, igual que morning-briefing arriba —
+      // ver project_salud_sueno). Tope de 60 fechas por petición: de sobra
+      // para las tablas de tendencia que pide Salud, sin abrir la puerta a
+      // pedir el histórico entero de un tirón.
+      if (url.pathname === '/api/mi/historico-salud') {
+        const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
+        const fechas = (url.searchParams.get('fechas') || '').split(',').map(s => s.trim()).filter(f => RE_FECHA.test(f)).slice(0, 60);
+        if (!fechas.length) return malaPeticion('fechas');
+        const buzon = await leerBuzon(env.META_DATOS, usuario.espacio);
+        return json({ historico: historicoSalud(buzon, fechas) }, 200);
       }
       if (url.pathname === '/api/ia') return await apiIa(request, env);
       if (url.pathname === '/api/archivos/subir') return await apiArchivosSubir(request, env, usuario, ctx);

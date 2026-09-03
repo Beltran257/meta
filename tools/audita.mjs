@@ -324,5 +324,42 @@ if (!cliente.includes('PBKDF2') || !cliente.includes('150_000')) {
 }
 if (!cliente.includes("'X-Meta'")) mal('Las peticiones que escriben ya no llevan la cabecera anti-CSRF');
 
+/* --- el `state` de OAuth es un número al azar, no el código de espacio ------
+   Encontrado el 3 sep 2026. Antes el state era `cal:<codigo de espacio>`, y
+   ese código va a la vista en la URL del feed ICS (se pega en Google Calendar
+   o en Outlook). Quien lo conociera podía montarse la URL de consentimiento
+   con el espacio de otro dentro, aceptar con SU cuenta de Google, y quedarse
+   con el calendario ajeno conectado: exámenes y tareas copiándose solos a un
+   calendario que no es el suyo. */
+const idx = readFileSync(join(RAIZ, 'worker/index.js'), 'utf8');
+if (!idx.includes('nuevoEstadoOAuth') || !idx.includes('canjearEstadoOAuth')) {
+  mal('worker/index.js: el state de OAuth vuelve a no ser un número al azar de un solo uso');
+} else if (/urlAutorizacion\(env, redirectUri, `cal:\$\{usuario\.espacio\}`\)/.test(idx)) {
+  mal('worker/index.js: se vuelve a mandar el código de espacio dentro del state de OAuth');
+} else if (!/canjearEstadoOAuth\(env, 'login'/.test(idx)) {
+  mal('worker/index.js: la vuelta de "entrar con Google" no canjea el state (login CSRF)');
+} else {
+  bien('El state de OAuth es un número al azar de un solo uso, en los dos flujos');
+}
+
+/* --- los apuntes se sirven solo con tipos conocidos -------------------------
+   El MIME lo elegía el cliente: con `X-Meta-Mime: text/html` meta servía el
+   archivo como PÁGINA WEB desde su propio dominio. Y esa respuesta sale del
+   Worker, no de app/, así que no lleva la CSP de _headers. */
+if (!idx.includes('MIME_FOTO') || !idx.includes('mimeDeFoto')) {
+  mal('worker/index.js: el tipo de archivo de un apunte vuelve a venir del cliente sin filtro');
+} else if (!/'Content-Security-Policy': "default-src 'none'; sandbox"/.test(idx)) {
+  mal('worker/index.js: la descarga de un apunte ya no lleva su propia CSP');
+} else {
+  bien('Los apuntes se sirven solo con tipos conocidos y con CSP propia');
+}
+
+/* --- las copias no se leen clave a clave ------------------------------------ */
+if (!/Promise\.all\(tanda\.map/.test(idx)) {
+  mal('worker/index.js: el volcado de la copia vuelve a leer KV clave a clave');
+} else {
+  bien('El volcado de la copia lee KV en tandas, no clave a clave');
+}
+
 console.log(`\n${fallos} fallos · ${avisos} avisos`);
 process.exit(fallos ? 1 : 0);
