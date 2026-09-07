@@ -40,6 +40,22 @@ chmod 600 "$SOPORTE/token"
 cp "$SCRIPT_ORIGEN" "$SCRIPT"
 chmod +x "$SCRIPT"
 
+# HORARIO. Antes corría cada 180 s las 24 horas: 480 ejecuciones al día, la
+# mayoría de madrugada, para vigilar una carpeta que nadie toca mientras
+# duerme. Ahora cada 5 minutos entre las 07:00 y las 23:30, que es cuando
+# tiene sentido — 199 ejecuciones, y ninguna de noche.
+#
+# Se genera la lista de horas en vez de usar StartInterval porque
+# StartInterval no entiende de franjas: o corre siempre, o no corre.
+HORAS=""
+minuto=$((7 * 60))
+fin=$((23 * 60 + 30))
+while [ "$minuto" -le "$fin" ]; do
+  HORAS="$HORAS
+    <dict><key>Hour</key><integer>$((minuto / 60))</integer><key>Minute</key><integer>$((minuto % 60))</integer></dict>"
+  minuto=$((minuto + 5))
+done
+
 cat > "$PLIST" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -55,7 +71,9 @@ cat > "$PLIST" <<EOF
   <dict>
     <key>META_CARPETA</key><string>$CARPETA</string>
   </dict>
-  <key>StartInterval</key><integer>180</integer>
+  <key>StartCalendarInterval</key>
+  <array>$HORAS
+  </array>
   <key>RunAtLoad</key><true/>
   <key>StandardOutPath</key><string>$SOPORTE/registro.log</string>
   <key>StandardErrorPath</key><string>$SOPORTE/registro.log</string>
@@ -73,6 +91,6 @@ fi
 launchctl unload "$PLIST" 2>/dev/null || true
 launchctl load "$PLIST"
 
-echo "✅ Enlazado. Revisa cada ~3 min (y también ahora mismo, al arrancar)."
+echo "✅ Enlazado. Revisa cada 5 min entre las 07:00 y las 23:30 (y ahora mismo, al arrancar)."
 echo "   Registro: $SOPORTE/registro.log"
 echo "   Prueba: suelta un PDF o una foto en una carpeta de asignatura y espera un momento."

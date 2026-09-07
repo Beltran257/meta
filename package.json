@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "audita": "node tools/audita.mjs",
+    "prueba": "for p in tools/prueba-*.mjs; do echo \"── $p\"; node \"$p\" || exit 1; done",
     "publica": "./tools/publica.sh",
     "backup": "node tools/backup.mjs"
   },
