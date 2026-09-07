@@ -21,6 +21,14 @@ sed -i '' "s|arranque.js?v=$ACTUAL|arranque.js?v=$NUEVA|" app/index.html
 echo "versión $ACTUAL → $NUEVA"
 
 node tools/audita.mjs
+
+# Guard: ninguna prueba puede quedarse fuera de esta lista. Las de arriba van
+# nombradas una a una a propósito (cada una dice qué se rompe si falla), pero
+# una lista a mano se queda vieja sin avisar — esto lo caza.
+for p in tools/prueba-*.mjs; do
+  [ -e "$p" ] || continue
+  grep -q "$(basename "$p")" "$0" || { echo "❌ $p existe y no se ejecuta al publicar: añádela arriba"; exit 1; }
+done
 # El feed de calendario es lo único que consume un programa ajeno (Apple
 # Calendar, Google, Outlook): un formato mal puesto no se ve en la app, se ve
 # en que el calendario no sincroniza. Sin red, pasa siempre.
@@ -80,4 +88,12 @@ if [ "$V" = "$NUEVA" ]; then
 else
   echo "⚠️  tras 2 min producción sigue sirviendo '$V' y esperábamos '$NUEVA'"
   exit 1
+fi
+
+# GitHub va AL FINAL, con producción ya verificada: un fallo aquí solo avisa
+# (lo desplegado ya está bien) en vez de tumbar la publicación. Mismo criterio
+# que bolsa y salud. Si no hay remoto configurado, no dice nada.
+if git remote get-url origin > /dev/null 2>&1; then
+  echo "subiendo commits a GitHub…"
+  git push origin main || echo "⚠️  no se pudo subir a GitHub — revisar a mano con: git push"
 fi
