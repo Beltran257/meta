@@ -191,6 +191,69 @@ export async function reconciliar(env, codigo, buzon) {
   await env.META_DATOS.put(mk, JSON.stringify(mapa));
 }
 
+/* ===========================================================================
+   BLOQUEO DE RECUPERACIÓN — lo pide Salud (project_salud_sueno).
+
+   Salud decide, con TUS medias de las últimas noches, si un día pide
+   recuperación; el evento lo pone aquí porque es aquí donde vive la conexión
+   con Google. La alternativa era que Salud tuviera su propio OAuth, y eso
+   obliga a publicar OTRA app en Google: política de privacidad, condiciones y
+   dominio verificado en Search Console, o el refresh token caduca a los 7
+   días. Una conexión ya montada y mantenida en un solo sitio es mejor que dos
+   a medias.
+
+   Un evento por día como mucho, con su id guardado en `saludcal:<codigo>`
+   igual que `gmap:` para las tareas: reenviar el mismo día actualiza el MISMO
+   evento en vez de duplicarlo, y si el día deja de pedir recuperación (porque
+   cambió un umbral) el evento se borra en vez de quedarse mintiendo.
+   =========================================================================== */
+const kBloqueos = codigo => `saludcal:${codigo}`;
+
+export async function bloqueoRecuperacion(env, codigo, { fecha, inicio, fin, titulo, descripcion, activo }) {
+  const accessToken = await accessTokenDe(env, codigo);
+  if (!accessToken) return { ok: false, estado: 'sin Google conectado en Meta' };
+
+  const mapa = (await env.META_DATOS.get(kBloqueos(codigo), 'json')) || {};
+  const eventId = mapa[fecha];
+
+  if (!activo) {
+    if (!eventId) return { ok: true, estado: 'no hacía falta' };
+    await llamarCalendar(accessToken, 'DELETE', `/calendars/primary/events/${eventId}`).catch(() => {});
+    delete mapa[fecha];
+    await env.META_DATOS.put(kBloqueos(codigo), JSON.stringify(mapa));
+    return { ok: true, estado: 'bloqueo retirado' };
+  }
+
+  const cuerpo = {
+    summary: titulo,
+    description: descripcion,
+    start: { dateTime: `${fecha}T${inicio}:00`, timeZone: 'Europe/Madrid' },
+    end: { dateTime: `${fecha}T${fin}:00`, timeZone: 'Europe/Madrid' },
+    transparency: 'opaque',
+    reminders: { useDefault: false, overrides: [{ method: 'popup', minutes: 15 }] },
+  };
+
+  if (eventId) {
+    const r = await llamarCalendar(accessToken, 'PUT', `/calendars/primary/events/${eventId}`, cuerpo);
+    if (r.ok) return { ok: true, estado: 'bloqueo actualizado' };
+    // Se pudo borrar a mano en Google: entonces se recrea, como en reconciliar().
+    if (r.status !== 404 && r.status !== 410) {
+      console.log('salud-bloqueo-put-fallo', codigo, r.status, (await r.text()).slice(0, 200));
+      return { ok: false, estado: `error ${r.status}` };
+    }
+    delete mapa[fecha];
+  }
+
+  const r = await llamarCalendar(accessToken, 'POST', '/calendars/primary/events', cuerpo);
+  if (!r.ok) {
+    console.log('salud-bloqueo-post-fallo', codigo, r.status, (await r.text()).slice(0, 200));
+    return { ok: false, estado: `error ${r.status}` };
+  }
+  mapa[fecha] = (await r.json()).id;
+  await env.META_DATOS.put(kBloqueos(codigo), JSON.stringify(mapa));
+  return { ok: true, estado: 'bloqueo creado' };
+}
+
 export async function estadoConexion(env, codigo) {
   const g = await env.META_DATOS.get(`google:${codigo}`, 'json');
   return { conectado: !!g?.refresh_token, email: g?.email || null, ultima: g?.ultima || null };

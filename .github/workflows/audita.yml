@@ -1,0 +1,41 @@
+# La misma auditoría que tools/publica.sh exige antes de desplegar, pero
+# corriendo sola en cada push y en cada pull request. Hasta ahora la única red
+# era acordarse de ejecutarla a mano: si se subía código sin publicar, el fallo
+# viajaba a GitHub sin que nada lo dijera.
+#
+# No instala dependencias a propósito: tools/audita.mjs y tools/prueba-*.mjs
+# son análisis estático y aritmética, solo usan módulos de node — nada de red,
+# nada de node_modules, nada de secretos de Cloudflare. Por eso este workflow
+# no puede desplegar ni tocar producción, y no hace falta darle ninguna clave.
+name: audita
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  audita:
+    name: auditoría y pruebas de meta
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: auditoría del proyecto
+        run: node tools/audita.mjs
+
+      # Cada prueba es un archivo suelto que sale con código != 0 si algo falla.
+      # El bucle recorre las que haya; si un día no hay ninguna, no falla.
+      - name: pruebas sin red
+        run: |
+          fallos=0
+          for p in tools/prueba-*.mjs; do
+            [ -e "$p" ] || continue
+            echo "── $p"
+            node "$p" || fallos=1
+          done
+          exit $fallos

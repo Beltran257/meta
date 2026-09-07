@@ -102,13 +102,13 @@
 .barra .sub { font-size: 12px; color: var(--apagado); font-weight: 500; }
 
 .btn-icono {
-  width: 32px; height: 32px; border-radius: var(--r2);
+  width: 40px; height: 40px; border-radius: var(--r2);
   display: grid; place-items: center; flex: 0 0 auto;
   color: var(--texto2);
   transition: background var(--t1), color var(--t1);
 }
 .btn-icono:hover { background: var(--sup3); color: var(--texto); }
-.btn-icono svg { width: 18px; height: 18px; stroke-width: 1.75; }
+.btn-icono svg { width: 19px; height: 19px; stroke-width: 1.75; }
 .btn-icono.fuerte { background: var(--acento); color: var(--sobre-acento); }
 .btn-icono.fuerte:hover { background: var(--acento-fuerte); color: var(--sobre-acento); }
 
@@ -177,6 +177,19 @@
 .tarjeta > h3 { margin-bottom: var(--e3); }
 .tarjeta.plana { background: transparent; border: 0; padding: 0; }
 
+/* Marca de un servicio conectado (Google Calendar, Outlook, Notion...): a
+   color real dentro de un título de línea de texto, por eso in-flow con
+   vertical-align en vez de flex — el h3 sigue siendo un h3 normal en todos
+   los demás sitios donde no lleva marca. */
+.marca-conexion {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; margin-right: var(--e2);
+  vertical-align: middle;
+  flex: 0 0 auto;
+}
+.marca-conexion svg { width: 100%; height: 100%; display: block; }
+.marca-conexion-linea { color: var(--acento); }
+
 .rejilla2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--e3); }
 .rejilla3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--e3); }
 .rejilla-auto { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--e3); }
@@ -225,6 +238,7 @@
 .fila .t2 {
   font-size: 12px; color: var(--texto2); margin-top: 2px;
   display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  min-width: 0; overflow-wrap: anywhere;
 }
 .fila .der select { padding: 5px 8px; font-size: 13px; }
 .fila .n1 { font-size: 13px; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -758,11 +772,40 @@
 .metrica .d { font-size: 11.5px; margin-top: 5px; }
 
 .grafico { width: 100%; height: 150px; display: block; }
-.barras { display: flex; align-items: flex-end; gap: 5px; height: 110px; }
-.barras .b { flex: 1 1 0; background: var(--acento-suave); border-radius: var(--r3) var(--r3) 0 0; position: relative; min-height: 2px; }
-.barras .b.on { background: var(--acento); }
-.barras-pie { display: flex; gap: 5px; margin-top: 6px; }
-.barras-pie span { flex: 1 1 0; text-align: center; font-size: 10.5px; color: var(--apagado); }
+
+/* Insignia: el icono de una métrica, en su tinte suave — mismo par
+   fondo/texto que .pil (ver esa regla), para que un vistazo a la insignia ya
+   diga si el número es neutro, bueno o malo antes de leerlo. */
+.insignia {
+  width: 30px; height: 30px; border-radius: var(--rp); flex: 0 0 auto;
+  display: grid; place-items: center; margin-bottom: var(--e2);
+  background: var(--acento-suave); color: var(--acento);
+}
+.insignia svg { width: 16px; height: 16px; stroke-width: 2; }
+.insignia.bien { background: var(--bien-suave); color: var(--bien); }
+.insignia.mal { background: var(--mal-suave); color: var(--mal); }
+
+/* Minutos de estudio por día: un tallo por día en vez de una barra sólida —
+   la barra sólida no dejaba sitio para decir CUÁNTO sin abrir el tooltip; el
+   tallo + punto sí, y el día de hoy lleva su valor encima en vez de tener que
+   pasar el ratón. */
+.lineas { display: flex; align-items: flex-end; gap: 5px; height: 130px; }
+.lineas .l { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.lineas .tallo { width: 2px; min-height: 2px; background: var(--borde2); border-radius: 1px; }
+.lineas .l.on .tallo { background: var(--acento); }
+.lineas .punto { width: 6px; height: 6px; border-radius: 50%; background: var(--apagado); margin-bottom: 5px; }
+.lineas .etq {
+  font-size: 10px; font-weight: 600; color: var(--sobre-acento); background: var(--acento);
+  padding: 3px 7px; border-radius: var(--rp); margin-bottom: 6px; white-space: nowrap;
+}
+.lineas-pie { display: flex; gap: 5px; margin-top: 8px; }
+.lineas-pie span {
+  flex: 1 1 0; text-align: center; font-size: 10.5px; color: var(--apagado);
+}
+.lineas-pie span.on {
+  display: block; margin: 0 auto; width: 18px; height: 18px; line-height: 18px;
+  border-radius: 50%; background: var(--acento); color: var(--sobre-acento); font-weight: 600;
+}
 
 .reparto { display: flex; flex-direction: column; gap: 10px; }
 .reparto .r { display: grid; grid-template-columns: 1fr auto; gap: 3px var(--e3); align-items: center; }

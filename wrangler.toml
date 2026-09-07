@@ -45,3 +45,13 @@ binding = "IA"
 [[kv_namespaces]]
 binding = "META_ARCHIVOS"
 id = "2a2729a8e48b4618b9e698edce417304"
+
+# ---------------------------------------------------------------------------
+# LOGS PERSISTENTES. Incluidos en el plan, sin coste aparte. Sin esto, un
+# "fallo interno" en producción no deja rastro: `wrangler tail` solo enseña lo
+# que pasa MIENTRAS está conectado, así que un error de anoche se pierde. Con
+# esto queda el error real y su traza durante 7 días, consultables desde el
+# panel de Cloudflare (Workers → este Worker → Logs) o con
+# `npx wrangler tail --format pretty`. Mismo criterio que salud.
+[observability]
+enabled = true

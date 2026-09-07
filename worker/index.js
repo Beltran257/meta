@@ -638,6 +638,10 @@ const ESCRIBEN = [
   '/api/notion/conectar', '/api/notion/desconectar',
   '/api/archivos/subir', '/api/archivos/borrar',
   '/api/notebooklm/sincronizar',
+  // La pide Salud por service binding, pero también valdría la cookie: sin
+  // esto, una web cualquiera podría hacer que le apareciera un evento en su
+  // calendario. Salud manda la cabecera igual que manda X-Salud en la suya.
+  '/api/mi/bloqueo-recuperacion',
 ];
 
 export default {
@@ -700,6 +704,29 @@ export default {
       // ver project_salud_sueno). Tope de 60 fechas por petición: de sobra
       // para las tablas de tendencia que pide Salud, sin abrir la puerta a
       // pedir el histórico entero de un tirón.
+      /* /api/mi/bloqueo-recuperacion -> pone (o quita) en SU Google Calendar
+         el hueco de recuperación que decide Salud. Vive aquí y no en Salud
+         porque aquí ya está montada la conexión con Google: que Salud tuviera
+         su propio OAuth obligaría a publicar otra app en Google (política de
+         privacidad, condiciones y dominio verificado) o su token caducaría a
+         los 7 días. Ver worker/google.js. */
+      if (url.pathname === '/api/mi/bloqueo-recuperacion') {
+        if (request.method !== 'POST') return json({ error: 'metodo no permitido' }, 405);
+        const d = await request.json().catch(() => null);
+        if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(String(d.fecha || ''))) {
+          return json({ error: 'falta fecha AAAA-MM-DD' }, 400);
+        }
+        const hhmm = (v, porDefecto) =>
+          /^([01]\d|2[0-3]):([0-5]\d)$/.test(String(v || '')) ? v : porDefecto;
+        return json(await google.bloqueoRecuperacion(env, usuario.espacio, {
+          fecha: d.fecha,
+          inicio: hhmm(d.inicio, '18:00'),
+          fin: hhmm(d.fin, '19:30'),
+          titulo: String(d.titulo || 'Bloqueo por recuperación').slice(0, 120),
+          descripcion: String(d.descripcion || '').slice(0, 1500),
+          activo: d.activo !== false,
+        }), 200);
+      }
       if (url.pathname === '/api/mi/historico-salud') {
         const RE_FECHA = /^\d{4}-\d{2}-\d{2}$/;
         const fechas = (url.searchParams.get('fechas') || '').split(',').map(s => s.trim()).filter(f => RE_FECHA.test(f)).slice(0, 60);

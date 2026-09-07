@@ -632,9 +632,9 @@ function render() {
 
     ${sesion ? bloqueSesion() : `
       <div class="rejilla3">
-        <div class="metrica"><div class="v">${escapa(duracion(minutosHoy))}</div><div class="e">Hoy</div></div>
-        <div class="metrica"><div class="v">${escapa(duracion(libres))}</div><div class="e">Te quedan</div></div>
-        <div class="metrica"><div class="v">${racha}/7</div><div class="e">Días esta semana</div></div>
+        <div class="metrica"><span class="insignia">${icono('reloj')}</span><div class="v">${escapa(duracion(minutosHoy))}</div><div class="e">Hoy</div></div>
+        <div class="metrica"><span class="insignia">${icono('reloj')}</span><div class="v">${escapa(duracion(libres))}</div><div class="e">Te quedan</div></div>
+        <div class="metrica"><span class="insignia ${racha ? 'bien' : ''}">${icono('fuego')}</span><div class="v">${racha}/7</div><div class="e">Días esta semana</div></div>
       </div>
       <div class="acciones" data-mt-grande>
         <button class="boton" data-accion="sesion-nueva">${icono('play')} Empezar una sesión</button>

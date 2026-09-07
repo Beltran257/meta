@@ -45,11 +45,14 @@ function barrasHoras() {
   return `
     <div class="tarjeta">
       <h3>Minutos de estudio por día</h3>
-      <div class="barras">
-        ${datos.map(d => `<div class="b ${d.ymd === hoy ? 'on' : ''}" data-alto="${Math.round((d.min / tope) * 100)}"
-          title="${escapa(d.ymd)}: ${escapa(duracion(d.min))}"></div>`).join('')}
+      <div class="lineas">
+        ${datos.map(d => { const on = d.ymd === hoy; return `
+        <div class="l ${on ? 'on' : ''}" title="${escapa(d.ymd)}: ${escapa(duracion(d.min))}">
+          ${on ? `<span class="etq">${escapa(duracion(d.min))}</span>` : `<span class="punto"></span>`}
+          <span class="tallo" data-alto="${Math.round((d.min / tope) * 100)}"></span>
+        </div>`; }).join('')}
       </div>
-      <div class="barras-pie">${datos.map(d => `<span>${escapa(d.et[0].toUpperCase())}</span>`).join('')}</div>
+      <div class="lineas-pie">${datos.map(d => `<span class="${d.ymd === hoy ? 'on' : ''}">${escapa(d.et[0].toUpperCase())}</span>`).join('')}</div>
     </div>`;
 }
 
@@ -170,18 +173,22 @@ function render() {
 
     <div class="rejilla-auto" data-mt-grande>
       <div class="metrica">
+        <span class="insignia">${icono('reloj')}</span>
         <div class="v">${escapa(duracion(m.minutos))}</div>
         <div class="e">Estudiado en ${rango} días</div>
       </div>
       <div class="metrica">
+        <span class="insignia ${m.dias ? 'bien' : ''}">${icono('calendario')}</span>
         <div class="v">${m.dias}<span class="apag"> / ${Math.min(rango, 30)}</span></div>
         <div class="e">Días con sesión</div>
       </div>
       <div class="metrica">
+        <span class="insignia ${m.hechas ? 'bien' : ''}">${icono('check')}</span>
         <div class="v">${m.hechas}</div>
         <div class="e">Tareas completadas</div>
       </div>
       <div class="metrica">
+        <span class="insignia ${m.atrasadas ? 'mal' : ''}">${icono('aviso')}</span>
         <div class="v ${m.atrasadas ? 'mal' : ''}">${m.atrasadas}</div>
         <div class="e">Atrasadas ahora</div>
       </div>
