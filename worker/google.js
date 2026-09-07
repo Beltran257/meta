@@ -119,9 +119,29 @@ async function accessTokenDe(env, codigo) {
 
   if (g.access_token && Date.now() < (g.expira || 0)) return g.access_token;
 
-  const t = await refrescarToken(env, g.refresh_token);
+  /* UN REFRESH QUE FALLA POR `invalid_grant` NO ES UN FALLO PASAJERO: el
+     permiso ya no existe (caducó, se revocó, o cambió la contraseña de
+     Google). Antes esto solo lanzaba una excepción, y como `estadoConexion`
+     mira únicamente si hay refresh_token guardado, la app seguía diciendo
+     "conectado" mientras llevaba semanas sin escribir nada en el calendario.
+     Ahora se anota en la ficha, para que la pantalla pueda pedir volver a
+     conectar en vez de callarse. Encontrado el 7 sep 2026: el token llevaba
+     caducado sin que nada lo dijera. */
+  let t;
+  try {
+    t = await refrescarToken(env, g.refresh_token);
+  } catch (e) {
+    const texto = String(e?.message || e);
+    if (texto.includes('invalid_grant')) {
+      g.roto = { desde: Date.now(), motivo: 'el permiso de Google ya no vale' };
+      await env.META_DATOS.put(clave, JSON.stringify(g));
+    }
+    throw e;
+  }
+
   g.access_token = t.access_token;
   g.expira = Date.now() + Math.max(0, (t.expires_in || 3600) - 60) * 1000;
+  delete g.roto; // volvió a funcionar
   await env.META_DATOS.put(clave, JSON.stringify(g));
   return g.access_token;
 }
@@ -210,7 +230,14 @@ export async function reconciliar(env, codigo, buzon) {
 const kBloqueos = codigo => `saludcal:${codigo}`;
 
 export async function bloqueoRecuperacion(env, codigo, { fecha, inicio, fin, titulo, descripcion, activo }) {
-  const accessToken = await accessTokenDe(env, codigo);
+  let accessToken;
+  try {
+    accessToken = await accessTokenDe(env, codigo);
+  } catch (e) {
+    // Que Salud reciba el motivo y lo enseñe, en vez de un 500 mudo.
+    return { ok: false, estado: String(e?.message || e).includes('invalid_grant')
+      ? 'hay que volver a conectar Google en Meta' : 'no se pudo renovar el acceso a Google' };
+  }
   if (!accessToken) return { ok: false, estado: 'sin Google conectado en Meta' };
 
   const mapa = (await env.META_DATOS.get(kBloqueos(codigo), 'json')) || {};
@@ -256,7 +283,15 @@ export async function bloqueoRecuperacion(env, codigo, { fecha, inicio, fin, tit
 
 export async function estadoConexion(env, codigo) {
   const g = await env.META_DATOS.get(`google:${codigo}`, 'json');
-  return { conectado: !!g?.refresh_token, email: g?.email || null, ultima: g?.ultima || null };
+  // `roto` lo pone accessTokenDe cuando Google contesta invalid_grant. Sin
+  // esto, "conectado" solo significaba "hay un refresh token guardado", que
+  // es verdad incluso cuando ese token dejó de servir hace semanas.
+  return {
+    conectado: !!g?.refresh_token && !g?.roto,
+    email: g?.email || null,
+    ultima: g?.ultima || null,
+    roto: g?.roto || null,
+  };
 }
 
 export async function guardarConexion(env, codigo, tokens, email) {
