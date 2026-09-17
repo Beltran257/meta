@@ -113,8 +113,8 @@ if (!estilosEnLinea) bien('Ningún style="" en plantillas (todo por CSS o CSSOM)
    Bug real: `data-mt` y `data-mt-grande` se usaban 78 veces para separar
    bloques y NO tenían regla en el CSS. No falla nada, no sale nada en consola:
    simplemente la app entera sale apretada y parece mal acabada. */
-const css = ['css/base.css', 'css/app.css']
-  .map(f => readFileSync(join(APP, f), 'utf8')).join('\n')
+const css = archivos.filter(f => f.endsWith('.css'))
+  .map(f => readFileSync(join(APP, f.slice(2)), 'utf8')).join('\n')
   .replace(/\/\*[\s\S]*?\*\//g, '');
 const clasesCSS = new Set([...css.matchAll(/\.([a-zA-Z][\w-]*)/g)].map(m => m[1]));
 const atributosCSS = new Set([...css.matchAll(/\[(data-[\w-]+)/g)].map(m => m[1]));

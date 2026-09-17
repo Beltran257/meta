@@ -1,0 +1,17 @@
+/* ===========================================================================
+   PRIVACIDAD — página suelta, fuera de la SPA. Solo el ancho de lectura y el
+   espaciado que base.css no trae por defecto: el resto (color, tipografía,
+   tema oscuro) ya sale de base.css sin tocar nada aquí.
+   =========================================================================== */
+
+.priv {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: calc(var(--e5) + var(--sat)) var(--e4) calc(var(--e5) + var(--sab));
+}
+
+.priv h1 { margin-bottom: var(--e2); }
+.priv h2 { margin: var(--e5) 0 var(--e2); }
+.priv-meta { color: var(--texto2); font-size: 13px; margin-bottom: var(--e4); }
+.priv ul { margin: 0 0 .7em; padding-left: 1.2em; }
+.priv li { margin-bottom: var(--e2); }
