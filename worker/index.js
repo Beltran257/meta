@@ -576,11 +576,21 @@ async function apiSalud(env) {
       cuentas = r.ok ? 'listas' : `error ${r.status}`;
     } catch (e) { cuentas = `error: ${String(e).slice(0, 100)}`; }
   }
+  /* El permiso de Google, sondeado de verdad (cada 6 h como mucho). Google
+     lo caduca a los siete días mientras la pantalla de consentimiento siga
+     "en pruebas", y hasta ahora eso solo se notaba al ver el calendario
+     vacío. Aquí no sale ningún dato de nadie: cuántas conexiones hay y
+     cuántas están rotas. Lo lee Morning Briefing cada mañana. */
+  let estadoGoogle = 'sin comprobar';
+  try { estadoGoogle = await google.sondaGoogle(env); }
+  catch (e) { estadoGoogle = `error: ${String(e?.message || e).slice(0, 80)}`; }
+
   return json({
     ok: true,
     servicio: 'meta',
     limitador,
     cuentas,
+    google: estadoGoogle,
     ia: env.IA ? 'enlazada' : 'ausente',
   }, 200);
 }

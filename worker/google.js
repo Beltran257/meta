@@ -426,3 +426,57 @@ export async function borrarDossier(env, codigo, fileId) {
   await fetch(`${DRIVE_API}/${fileId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
     .catch(() => { /* si ya no está, mejor */ });
 }
+
+/* ===========================================================================
+   LA SONDA DE LA CONEXIÓN
+
+   El permiso de Google se cae solo, y esa es la parte que no se puede
+   arreglar desde aquí: mientras la pantalla de consentimiento esté "en
+   pruebas" en Google Cloud, Google caduca el refresh token a los SIETE DÍAS
+   hagas lo que hagas. Ya pasó el 7 sep 2026.
+
+   Lo que sí se puede arreglar es enterarse. `roto` solo se marca cuando algo
+   INTENTA usar el token, y lo que lo usa —el bloqueo por recuperación de
+   Salud, o él abriendo esta app— puede tardar semanas en volver a intentarlo.
+   Mientras tanto la app dice "conectado" y el calendario se queda en blanco.
+
+   Esto lo intenta a propósito, una vez cada seis horas como mucho, para que
+   el fallo aparezca solo. Lo lee `GET /api/salud`, que es lo que Morning
+   Briefing consulta cada mañana y acaba en el aviso del iPad.
+   =========================================================================== */
+const K_SONDA = 'sonda:google';
+const SONDA_CADA_MS = 6 * 3600 * 1000;
+
+export async function sondaGoogle(env) {
+  const guardado = await env.META_DATOS.get(K_SONDA, 'json').catch(() => null);
+  if (guardado && Date.now() - (guardado.cuando || 0) < SONDA_CADA_MS) return guardado.estado;
+
+  let estado = 'sin conectar';
+  try {
+    const { keys } = await env.META_DATOS.list({ prefix: 'google:' });
+    const codigos = keys.map(k => k.name.slice('google:'.length)).filter(Boolean);
+    let conectadas = 0;
+    const rotas = [];
+    for (const codigo of codigos) {
+      const g = await env.META_DATOS.get(`google:${codigo}`, 'json');
+      if (!g?.refresh_token) continue;
+      conectadas++;
+      // accessTokenDe marca `roto` él solo si Google contesta invalid_grant.
+      try { await accessTokenDe(env, codigo); } catch { /* lo dirá el flag */ }
+      const despues = await env.META_DATOS.get(`google:${codigo}`, 'json');
+      if (despues?.roto) rotas.push(codigo);
+    }
+    /* Se dice QUÉ código hay que reconectar, no solo cuántos. Un aviso que
+       repite "hay una conexión rota" todos los días sin decir cuál se acaba
+       ignorando, y él tiene dos espacios: sin el código no sabría en cuál
+       entrar. El código de sincronización no es un secreto —se enseña en la
+       propia pantalla de Meta— pero tampoco abre nada por sí solo. */
+    estado = !conectadas ? 'sin conectar'
+      : rotas.length ? `HAY QUE RECONECTAR: ${rotas.join(', ')} (${rotas.length} de ${conectadas})`
+        : 'conectado';
+  } catch (e) {
+    estado = `error: ${String(e?.message || e).slice(0, 80)}`;
+  }
+  await env.META_DATOS.put(K_SONDA, JSON.stringify({ cuando: Date.now(), estado })).catch(() => {});
+  return estado;
+}
