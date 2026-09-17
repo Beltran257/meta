@@ -10,7 +10,7 @@
 import { hoja, cerrarHoja, aviso, pintaEstilos, icono, barra } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
 import { escapa, fechaLarga, fechaCorta, diaSemana, diasHasta, textoCountdown, duracion } from '../core/fmt.js';
-import { listaAsignaturas, asignaturaDe } from '../core/asignaturas.js';
+import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { temasDe, crearTema } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import { formTarea, guardarTareas } from './tareas.js';
@@ -202,7 +202,7 @@ function render() {
     .filter(e => diasHasta(e.fecha) < 0)
     .sort((a, b) => b.fecha.localeCompare(a.fecha));
 
-  if (!listaAsignaturas().length) {
+  if (!contenido().length) {
     raiz.innerHTML = `
       <div class="vacio">
         <h4>Antes, tus asignaturas</h4>

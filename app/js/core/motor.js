@@ -16,7 +16,7 @@
 import { leer } from './store.js';
 import { hoyLocal, diasHasta, aFecha, sumaDias, aMinutos, minutosAhora, pct } from './fmt.js';
 import { listaTemas, temasDe, dominioMedio } from './temas.js';
-import { listaAsignaturas, asignaturaDe } from './asignaturas.js';
+import { listaAsignaturas, asignaturaDe, contenido } from './asignaturas.js';
 
 /* ===========================================================================
    PERFIL Y DISPONIBILIDAD
@@ -569,7 +569,7 @@ export function contextoIA({ examen = null, texto = null } = {}) {
     hoy: hoyLocal(),
     estado: { puntos: est.puntos, etiqueta: est.etiqueta },
     disponible: minutosLibresHoy(),
-    asignaturas: listaAsignaturas().map(a => a.nombre),
+    asignaturas: contenido().map(a => a.nombre),
     examenes: examenesProximos(30).map(e => ({
       titulo: e.titulo, asignatura: nombre(e.asignaturaId), fecha: e.fecha,
       dias: Math.max(0, diasHasta(e.fecha)), preparacion: preparacion(e) ?? 0,

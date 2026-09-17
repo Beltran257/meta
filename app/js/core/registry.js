@@ -46,4 +46,4 @@ export const CLAVES_SINCRONIZABLES = [
    tipo 'examen' y campos propios (temaIds, dificultad). */
 export const TIPOS_TAREA = ['tarea', 'examen'];
 export const ESTADOS_TAREA = ['pendiente', 'haciendo', 'hecha'];
-export const TIPOS_SESION = ['teoria', 'ejercicios', 'repaso', 'flashcards', 'test', 'simulacro'];
+export const TIPOS_SESION = ['teoria', 'ejercicios', 'repaso', 'flashcards', 'test', 'simulacro', 'clase'];

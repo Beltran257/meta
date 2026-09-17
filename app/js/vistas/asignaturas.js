@@ -8,7 +8,7 @@ import { guardar, leer } from '../core/store.js';
 import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
 import { escapa, duracion, diasHasta, fechaCorta, nota as fnota, pct } from '../core/fmt.js';
-import { PALETA, listaAsignaturas, asignaturaDe, siguienteColor, nuevoId } from '../core/asignaturas.js';
+import { PALETA, TIPOS_ASIGNATURA, listaAsignaturas, asignaturaDe, siguienteColor, nuevoId, tipoDe } from '../core/asignaturas.js';
 import { temasDe, crearTema, editarTema, borrarTema, dominioMedio } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import { abrirNotas, mediaGeneral, entradaDe } from './notas.js';
@@ -56,6 +56,7 @@ function vistaLista() {
           <button class="tarjeta" data-accion="asig-abrir" data-id="${escapa(a.id)}">
             <div class="asig"><i data-bg="${escapa(a.color)}"></i><span>${escapa(a.nombre)}</span></div>
             <h3 data-mt>${escapa(a.nombre)}</h3>
+            ${tipoDe(a) !== 'academica' ? `<span class="pil" data-mt>${escapa(TIPOS_ASIGNATURA.find(([v]) => v === tipoDe(a))?.[1] || '')}</span>` : ''}
             <div class="parrafo chico">
               ${r.temas.length ? `${r.temas.length} ${r.temas.length === 1 ? 'tema' : 'temas'}` : 'Sin temas'}
               ${r.tareas.length ? ` · ${r.tareas.length} pendiente${r.tareas.length === 1 ? '' : 's'}` : ''}
@@ -191,6 +192,12 @@ function formAsignatura(a) {
         <label for="as-nombre">Nombre</label>
         <input id="as-nombre" type="text" value="${escapa(a?.nombre || '')}" placeholder="Matemáticas II" autocomplete="off">
       </div>
+      <div class="campo">
+        <label>Tipo</label>
+        <div class="chips" id="as-tipo">
+          ${TIPOS_ASIGNATURA.map(([v, e]) => `<button type="button" class="chip" data-tipo-asig="${v}" aria-pressed="${tipoDe(a) === v}">${e}</button>`).join('')}
+        </div>
+      </div>
       <div class="campos-2">
         <div class="campo">
           <label for="as-profesor">Profesor (opcional)</label>
@@ -218,6 +225,11 @@ function formAsignatura(a) {
         if (!b) return;
         v.querySelectorAll('#as-paleta button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
       });
+      v.querySelector('#as-tipo').addEventListener('click', ev => {
+        const b = ev.target.closest('button[data-tipo-asig]');
+        if (!b) return;
+        v.querySelectorAll('#as-tipo button').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
+      });
     },
   });
 }
@@ -235,12 +247,13 @@ accion('asig-guardar', (d, el) => {
   const profesor = v.querySelector('#as-profesor').value.trim();
   const aula = v.querySelector('#as-aula').value.trim();
   const color = v.querySelector('#as-paleta button[aria-pressed="true"]')?.dataset.color || siguienteColor();
+  const tipo = v.querySelector('#as-tipo button[aria-pressed="true"]')?.dataset.tipoAsig || 'academica';
   if (!nombre) return aviso('Ponle un nombre', 'mal');
 
   const lista = listaAsignaturas();
   guardarAsignaturas(d.id
-    ? lista.map(a => (a.id === d.id ? { ...a, nombre, profesor, aula, color } : a))
-    : [...lista, { id: nuevoId(), nombre, profesor, aula, color }]);
+    ? lista.map(a => (a.id === d.id ? { ...a, nombre, profesor, aula, color, tipo } : a))
+    : [...lista, { id: nuevoId(), nombre, profesor, aula, color, tipo }]);
   cerrarHoja();
   render();
   aviso('Guardado');

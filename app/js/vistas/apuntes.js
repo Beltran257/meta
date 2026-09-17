@@ -13,7 +13,7 @@ import { leer, guardar } from '../core/store.js';
 import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, enfocar } from '../core/ui.js';
 import { accion, on, emitir, retardar } from '../core/bus.js';
 import { escapa, hoyLocal, fechaCorta } from '../core/fmt.js';
-import { listaAsignaturas, asignaturaDe } from '../core/asignaturas.js';
+import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { temasDe, temaDe } from '../core/temas.js';
 import { guardarBlob, leerBlob, borrarBlob } from '../core/apuntesdb.js';
 import { subirArchivo, borrarArchivoRemoto, bajarArchivoSiFalta } from '../core/archivos.js';
@@ -106,7 +106,7 @@ async function tarjeta(a) {
 async function render() {
   if (!raiz) return;
   limpiarUrls();
-  const asignaturas = listaAsignaturas();
+  const asignaturas = contenido();
 
   if (!asignaturas.length) {
     raiz.innerHTML = `
@@ -232,7 +232,7 @@ accion('apunte-tipo', d => {
 });
 
 function selectorAsignaturaTema(a) {
-  const asignaturas = listaAsignaturas();
+  const asignaturas = contenido();
   const asigId = a?.asignaturaId || (asigSel !== 'todas' ? asigSel : asignaturas[0]?.id) || '';
   return `
     <div class="campos-2">

@@ -28,3 +28,23 @@ export const siguienteColor = () => {
 };
 
 export const nuevoId = () => 'a' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+/* Tres clases de "asignatura", porque no todas cuelgan lo mismo:
+   · académica  — la del curso oficial: temario, notas, exámenes.
+   · particular — clases fuera del centro (una academia, un profesor
+     particular) que sí generan temario y sesiones, pero nunca una nota
+     oficial ni un examen del curso.
+   · bloque     — un hueco del horario que no es clase (un recreo, una
+     tutoría): solo existe para pintarse en una casilla. */
+export const TIPOS_ASIGNATURA = [
+  ['academica', 'Asignatura del curso'],
+  ['particular', 'Clase particular'],
+  ['bloque', 'Bloque del horario'],
+];
+
+export const tipoDe = a => a?.tipo || 'academica';
+
+/** Asignaturas con algo académico de verdad: fuera quedan los bloques del
+    horario, que no tienen temario, notas ni tareas y no pintan nada en el
+    resumen de META AI ni en los selectores de "elige asignatura". */
+export const contenido = () => listaAsignaturas().filter(a => tipoDe(a) !== 'bloque');

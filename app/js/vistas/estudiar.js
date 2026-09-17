@@ -11,7 +11,7 @@ import { leer, guardar } from '../core/store.js';
 import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
 import { escapa, hoyLocal, duracion, diasHasta, sumaDias } from '../core/fmt.js';
-import { listaAsignaturas, asignaturaDe } from '../core/asignaturas.js';
+import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { listaTemas, temaDe, temasDe, registrarRepaso, ajustarDominio, tocaRepasar } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import * as ia from '../core/ia.js';
@@ -21,6 +21,7 @@ const nuevoId = p => p + Date.now().toString(36) + Math.random().toString(36).sl
 const TIPOS = [
   ['teoria', 'Teoría'], ['ejercicios', 'Ejercicios'], ['repaso', 'Repaso'],
   ['flashcards', 'Flashcards'], ['test', 'Test'], ['simulacro', 'Simulacro'],
+  ['clase', 'Clase particular'],
 ];
 
 let raiz = null;
@@ -94,7 +95,7 @@ accion('sesion-pausa', () => {
 
 function empezar({ asignaturaId, temaId, tipo = 'teoria', minutos = null }) {
   sesion = {
-    asignaturaId: asignaturaId || temaDe(temaId)?.asignaturaId || listaAsignaturas()[0]?.id || null,
+    asignaturaId: asignaturaId || temaDe(temaId)?.asignaturaId || contenido()[0]?.id || null,
     temaId: temaId || null,
     tipo,
     objetivo: minutos,
@@ -186,7 +187,7 @@ accion('sesion-tirar', async () => {
 /* ============================ EMPEZAR UNA SESIÓN =========================== */
 
 function nuevaSesion() {
-  const asignaturas = listaAsignaturas();
+  const asignaturas = contenido();
   if (!asignaturas.length) return aviso('Añade antes tus asignaturas', 'mal');
   hoja({
     titulo: 'Nueva sesión de estudio',
@@ -612,7 +613,7 @@ function cerrarTest() {
 function render() {
   if (!raiz) return;
 
-  if (!listaAsignaturas().length) {
+  if (!contenido().length) {
     raiz.innerHTML = `
       <div class="vacio">
         <h4>Antes, tus asignaturas</h4>

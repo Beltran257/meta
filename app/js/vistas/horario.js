@@ -21,6 +21,23 @@ let diaSel = null;             // YYYY-MM-DD para la vista de día
 
 const horario = () => motor.horarioDatos();
 
+/** Las franjas se guardan en el orden en que se han ido creando (siempre al
+    final), no en el orden del día: una franja añadida para tapar un hueco de
+    después de comer acaba detrás de la última hora de la tarde. Para pintar
+    se ordenan por hora de inicio; el índice real (el que usan `dias` y los
+    botones de borrar/editar) viaja aparte y no cambia. */
+function franjasOrdenadas(h) {
+  return h.franjas
+    .map((f, i) => ({ f, i }))
+    .sort((x, y) => (aMinutos(x.f.ini) ?? 0) - (aMinutos(y.f.ini) ?? 0));
+}
+
+/** Solo las franjas de todos los días: una franja marcada como "solo un día"
+    (ver bloqueFranjas) es una excepción de ESE día y no pinta fila en la
+    Semana, donde dejaría un hueco suelto en los otros cuatro. Sigue viéndose
+    en la vista de Día del día al que pertenece. */
+const franjasSemana = h => franjasOrdenadas(h).filter(({ f }) => !f.dia);
+
 function guardarHorario(h) {
   guardar('horario', h);
   emitir('local-cambio');
@@ -49,7 +66,7 @@ function vistaSemana() {
       <div class="semana-rejilla">
         <div></div>
         ${motor.DIAS_LECTIVOS.map(d => `<div class="cab ${d.dow === hoyDow ? 'hoy' : ''}">${d.et}</div>`).join('')}
-        ${h.franjas.map((f, i) => `
+        ${franjasSemana(h).map(({ f, i }) => `
           <div class="hora">${escapa(f.ini)}<br>${escapa(f.fin)}</div>
           ${motor.DIAS_LECTIVOS.map(d => {
             const asigId = h.dias[d.id]?.[i] || null;
@@ -211,13 +228,19 @@ function bloqueFranjas() {
   const h = horario();
   return `
     <div class="lista">
-      ${h.franjas.length ? h.franjas.map((f, i) => `
+      ${h.franjas.length ? franjasOrdenadas(h).map(({ f, i }) => `
         <div class="fila">
           <span class="izq">
             <span class="campos-2">
               <input type="time" value="${escapa(f.ini)}" data-franja="ini" data-i="${i}" aria-label="Hora de inicio">
               <input type="time" value="${escapa(f.fin)}" data-franja="fin" data-i="${i}" aria-label="Hora de fin">
             </span>
+          </span>
+          <span class="der">
+            <select data-franja="dia" data-i="${i}" aria-label="Qué días tiene esta franja">
+              <option value="" ${!f.dia ? 'selected' : ''}>Todos los días</option>
+              ${motor.DIAS_LECTIVOS.map(d => `<option value="${d.id}" ${f.dia === d.id ? 'selected' : ''}>Solo ${d.largo}</option>`).join('')}
+            </select>
           </span>
           <button class="btn-icono" data-accion="franja-borrar" data-i="${i}" aria-label="Borrar franja">${icono('papelera')}</button>
         </div>`).join('')
@@ -240,7 +263,9 @@ function engancharFranjas(el) {
       const i = Number(inp.dataset.i);
       const h = horario();
       const franjas = [...h.franjas];
-      franjas[i] = { ...franjas[i], [inp.dataset.franja]: inp.value };
+      const campo = inp.dataset.franja;
+      const valor = campo === 'dia' ? (inp.value || null) : inp.value;
+      franjas[i] = { ...franjas[i], [campo]: valor };
       guardarHorario({ ...h, franjas });
     });
   });
@@ -250,7 +275,10 @@ accion('franjas-abrir', () => {
   hoja({
     titulo: 'Franjas horarias',
     cuerpo: `<p class="parrafo">Las horas de clase de un día normal. Son las mismas
-      para los cinco días; si un día tienes menos, deja las casillas libres.</p>
+      para los cinco días; si un día tienes menos, deja las casillas libres. Si un día
+      tiene una franja que no existe en los demás (por ejemplo, un tramo que solo pasa
+      un miércoles), márcala como de un solo día: así no deja huecos sueltos en la
+      vista de Semana de los otros cuatro.</p>
       <div id="caja-franjas" data-mt-grande>${bloqueFranjas()}</div>`,
     alAbrir(v) { engancharFranjas(v); },
   });
@@ -258,7 +286,11 @@ accion('franjas-abrir', () => {
 
 accion('franja-anadir', () => {
   const h = horario();
-  const ultima = h.franjas[h.franjas.length - 1];
+  // La franja de la que se parte es la que termina más tarde, no la última
+  // añadida: con franjas fuera de orden (ver franjasOrdenadas) el final del
+  // array ya no es siempre el final del día.
+  const ultima = h.franjas.reduce((mejor, f) =>
+    (aMinutos(f.fin) ?? -1) > (aMinutos(mejor?.fin) ?? -1) ? f : mejor, null);
   const nueva = ultima
     ? { ini: ultima.fin, fin: aHora((aMinutos(ultima.fin) ?? 510) + 55) }
     : { ini: '08:30', fin: '09:25' };

@@ -11,7 +11,7 @@ import { guardar } from '../core/store.js';
 import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, enfocar, marcarCheck, flipLista } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
 import { escapa, hoyLocal, fechaLarga, fechaCorta, diasHasta, textoCountdown, duracion, sumaDias } from '../core/fmt.js';
-import { listaAsignaturas, asignaturaDe } from '../core/asignaturas.js';
+import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { temasDe } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 
@@ -85,7 +85,7 @@ export function filaTarea(t, { conMotivo = true } = {}) {
 function render() {
   if (!raiz) return;
 
-  if (!listaAsignaturas().length) {
+  if (!contenido().length) {
     raiz.innerHTML = `
       <div class="vacio">
         <h4>Antes, tus asignaturas</h4>
@@ -185,7 +185,7 @@ const DURACIONES = [15, 30, 45, 60, 90, 120];
     temario y poco más. Dos formularios distintos era pedir que se separaran
     con el tiempo. */
 export function formTarea(t, { tipo = 'tarea', fecha = null, asignaturaId = null } = {}) {
-  const asignaturas = listaAsignaturas();
+  const asignaturas = contenido();
   const esExamen = (t?.tipo || tipo) === 'examen';
   const asigActual = t?.asignaturaId || asignaturaId || asignaturas[0]?.id || '';
 

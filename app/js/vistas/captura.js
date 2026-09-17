@@ -10,7 +10,7 @@
 import { hoja, cerrarHoja, aviso, pintaEstilos, icono } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
 import { escapa, duracion } from '../core/fmt.js';
-import { listaAsignaturas } from '../core/asignaturas.js';
+import { contenido } from '../core/asignaturas.js';
 import { formTarea } from './tareas.js';
 import { nuevaRapida } from './apuntes.js';
 import * as ia from '../core/ia.js';
@@ -52,7 +52,7 @@ accion('captura-abrir', () => {
 });
 
 const conAsignaturas = fn => {
-  if (!listaAsignaturas().length) {
+  if (!contenido().length) {
     cerrarHoja();
     aviso('Añade antes tus asignaturas', 'mal');
     return emitir('ir', { id: 'asignaturas' });
