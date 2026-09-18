@@ -105,9 +105,9 @@ function vistaDetalle(a) {
       ${notas?.objetivo != null ? `
         <div class="factor">
           <span class="n">Media actual</span>
-          <span class="v">${escapa(fnota(mediaDe(notas)))} de ${escapa(fnota(notas.objetivo))}</span>
+          <span class="v">${escapa(fnota(mediaGeneral(notas)))} de ${escapa(fnota(notas.objetivo))}</span>
         </div>
-        ${barra(pct(mediaDe(notas) || 0, notas.objetivo))}`
+        ${barra(pct(mediaGeneral(notas) || 0, notas.objetivo))}`
       : '<p class="parrafo chico">Apunta tus notas y ponte un objetivo: META calcula qué te hace falta en lo que queda.</p>'}
       <button class="boton fantasma ancho" data-accion="asig-notas" data-id="${escapa(a.id)}" data-mt>
         Ver notas y objetivo
@@ -163,13 +163,6 @@ function vistaDetalle(a) {
       <button class="boton" data-accion="asig-estudiar" data-id="${escapa(a.id)}">Estudiar esta asignatura</button>
       <button class="boton fantasma" data-accion="ir" data-id="apuntes">Ver sus apuntes</button>
     </div>`;
-}
-
-function mediaDe(entrada) {
-  const todas = ['1', '2', '3'].flatMap(k => entrada.evaluaciones?.[k] || []);
-  if (!todas.length) return null;
-  const peso = todas.reduce((s, n) => s + (n.peso || 1), 0);
-  return peso ? todas.reduce((s, n) => s + n.valor * (n.peso || 1), 0) / peso : null;
 }
 
 /* -------------------------------- acciones --------------------------------- */

@@ -229,6 +229,37 @@ export function minutosLibresHoy(ahora = new Date()) {
 }
 
 /* ===========================================================================
+   NOTAS — la media del curso de una asignatura, en UN solo sitio.
+
+   Vivía duplicada en tres, y las tres no daban lo mismo: vistas/notas.js
+   hacía la media de las evaluaciones, vistas/asignaturas.js una sola bolsa
+   ponderada con las tres juntas, y el estado académico de aquí abajo tenía su
+   propia copia de la segunda. Con un 9 en la 1ª evaluación y cuatro 4 en la
+   2ª salían 6,50 en una pantalla y 5,00 en otra para la misma asignatura.
+
+   La buena es la media de las evaluaciones QUE YA tienen notas, y dentro de
+   cada una la media ponderada por peso: así es como se saca una nota de curso
+   en Bachillerato, y es la que usa "qué nota necesito" (vistas/notas.js).
+   Está en el motor y no en una vista porque el estado académico la necesita,
+   y el motor no puede depender de una pantalla.
+   =========================================================================== */
+
+export const EVALUACIONES = ['1', '2', '3'];
+
+/** Media ponderada de una lista de notas. Null si no hay ninguna. */
+export function mediaPonderada(lista) {
+  if (!lista?.length) return null;
+  const peso = lista.reduce((s, n) => s + (n.peso || 1), 0);
+  return peso ? lista.reduce((s, n) => s + n.valor * (n.peso || 1), 0) / peso : null;
+}
+
+/** Media del curso a partir del objeto `evaluaciones` de una asignatura. */
+export function mediaDelCurso(evaluaciones) {
+  const medias = EVALUACIONES.map(e => mediaPonderada(evaluaciones?.[e])).filter(m => m != null);
+  return medias.length ? medias.reduce((a, b) => a + b, 0) / medias.length : null;
+}
+
+/* ===========================================================================
    ESTADO ACADÉMICO
    Empieza en 100 y cada problema real resta. Se enseñan los factores con su
    coste: si no se puede explicar por qué bajó, no vale para nada.
@@ -250,9 +281,14 @@ export function estadoAcademico() {
   apunta('Tareas atrasadas', Math.min(30, atras.length * 9),
     atras.length ? `${atras.length} ${atras.length === 1 ? 'tarea ha pasado' : 'tareas han pasado'} su fecha sin estar hechas.` : '');
 
-  /* 2. Acumulación: entregas apiñadas en los próximos 3 días. */
+  /* 2. Acumulación: ENTREGAS apiñadas en los próximos 3 días. Los exámenes
+     quedan fuera: no son trabajo que ocupe un hueco de la tarde, y colarlos
+     aquí les asignaba los 45 minutos por defecto de una tarea cualquiera —
+     dos exámenes seguidos inventaban hora y media de carga que no existe.
+     Ya tienen su propio factor (el 3) y su propio riesgo. Mismo criterio que
+     atrasadas() y que riesgos(). */
   const hoy = hoyLocal();
-  const pronto = pendientes().filter(t => t.fecha >= hoy && diasHasta(t.fecha) <= 3);
+  const pronto = pendientes().filter(t => t.tipo !== 'examen' && t.fecha >= hoy && diasHasta(t.fecha) <= 3);
   const minutosPronto = pronto.reduce((s, t) => s + (t.duracion || 45), 0);
   const minutosQueHay = [0, 1, 2, 3].reduce((s, i) => s + disponibilidadDe(sumaDias(hoy, i)), 0);
   const exceso = minutosPronto - minutosQueHay;
@@ -286,16 +322,21 @@ export function estadoAcademico() {
   apunta('Repasos vencidos', Math.min(10, olvidados.length * 2.5),
     olvidados.length ? `${olvidados.length} temas llevan más de una semana pasados de repaso.` : '');
 
-  /* 6. Asignaturas por debajo de su propio objetivo. */
+  /* 6. Asignaturas por debajo de su propio objetivo.
+     La media del curso es la MEDIA DE LAS EVALUACIONES que ya tienen notas,
+     y dentro de cada una la media ponderada por peso — que es como se calcula
+     una nota de curso en Bachillerato, y lo que enseñan la pantalla de Notas
+     y la de Análisis (mediaGeneral() en vistas/notas.js).
+     Aquí había una fórmula distinta: una sola bolsa ponderada con las notas
+     de las tres evaluaciones juntas. Con un 9 en la 1ª y cuatro 4 en la 2ª,
+     esa daba 5,00 mientras la pantalla de Notas enseñaba 6,50 para la misma
+     asignatura, y el estado académico restaba puntos por la que no era. */
   const notas = leer('notas', {});
   const flojas = listaAsignaturas().filter(a => {
     const e = notas[a.id];
     if (!e || e.objetivo == null) return false;
-    const todas = ['1', '2', '3'].flatMap(k => e.evaluaciones?.[k] || []);
-    if (!todas.length) return false;
-    const media = todas.reduce((s, n) => s + n.valor * (n.peso || 1), 0) /
-      todas.reduce((s, n) => s + (n.peso || 1), 0);
-    return media < e.objetivo - 0.5;
+    const media = mediaDelCurso(e.evaluaciones);
+    return media != null && media < e.objetivo - 0.5;
   });
   apunta('Por debajo de tu objetivo', Math.min(8, flojas.length * 2.5),
     flojas.length ? flojas.map(a => a.nombre).join(', ') : '');
@@ -481,14 +522,22 @@ export function planDelDia({ minutos, fecha = hoyLocal() } = {}) {
      otra cosa por hacer — cambiar de asignatura cansa menos y cunde más. */
   let ultimaAsig = null;
   const usados = new Set();
+  /* Un mismo tema puede aparecer DOS veces en `candidatos`: una por el examen
+     que lo incluye (paso 2) y otra por tener el repaso vencido (paso 3).
+     `usados` va por índice de candidato, así que sin esto el plan del día
+     gastaba dos bloques en el mismo tema — "Trigonometría" y "Repaso:
+     Trigonometría" seguidos, de un tiempo que ya es escaso. */
+  const yaEnPlan = new Set();
+  const libre = (c, idx) => !usados.has(idx) && !yaEnPlan.has(c.refId);
   while (libres >= MIN_BLOQUE && plan.length < 6) {
     // Primero se busca algo de OTRA asignatura; si no queda, vale cualquiera.
-    let i = candidatos.findIndex((c, idx) => !usados.has(idx) && c.asignaturaId !== ultimaAsig);
-    if (i === -1) i = candidatos.findIndex((c, idx) => !usados.has(idx));
+    let i = candidatos.findIndex((c, idx) => libre(c, idx) && c.asignaturaId !== ultimaAsig);
+    if (i === -1) i = candidatos.findIndex(libre);
     if (i === -1) break;
 
     const c = candidatos[i];
     usados.add(i);
+    yaEnPlan.add(c.refId);
     const min = Math.min(c.minutos, libres);
     if (min < MIN_BLOQUE) break;
     plan.push(bloque(min, c.que, c.detalle, { tipo: c.tipo, refId: c.refId, asignaturaId: c.asignaturaId }));
@@ -536,7 +585,13 @@ export function semanaDesde(desde = hoyLocal(), dias = 7) {
     escribe nada): una propuesta de "qué tocaría cada día" hasta el examen. */
 export function planHastaExamen(examen) {
   const hoy = hoyLocal();
-  const diasQueQuedan = Math.max(1, diasHasta(examen.fecha));
+  /* Los días útiles son los que quedan HASTA LA VÍSPERA: el día del examen ya
+     no se estudia para él. Antes esto era Math.max(1, diasHasta(...)), y el
+     reparto iba de hoy+1 a hoy+diasQueQuedan — o sea, el último día del plan
+     caía SIEMPRE el día del examen. Y un examen de hoy o ya pasado producía
+     un plan para mañana: repasar para algo que ya se hizo. */
+  const diasQueQuedan = diasHasta(examen.fecha) - 1;
+  if (diasQueQuedan < 1) return [];
   const temas = temarioDe(examen).slice().sort((a, b) => (a.dominio || 0) - (b.dominio || 0));
   if (!temas.length) return [];
 

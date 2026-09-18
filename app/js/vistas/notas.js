@@ -12,6 +12,7 @@ import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar
 import { accion, emitir } from '../core/bus.js';
 import { escapa, hoyLocal, fechaCorta, nota as fnota, numeroDe, pct } from '../core/fmt.js';
 import { asignaturaDe } from '../core/asignaturas.js';
+import { mediaPonderada, mediaDelCurso } from '../core/motor.js';
 import { dibujarEvolucion } from '../core/grafico.js';
 
 const EVALS = ['1', '2', '3'];
@@ -33,16 +34,13 @@ function guardarEntrada(asigId, entrada) {
   emitir('datos-cambio', ['notas']);
 }
 
-export function mediaLista(lista) {
-  if (!lista.length) return null;
-  const peso = lista.reduce((s, n) => s + (n.peso || 1), 0);
-  return peso ? lista.reduce((s, n) => s + n.valor * (n.peso || 1), 0) / peso : null;
-}
+/* El cálculo vive en core/motor.js, no aquí: el estado académico también lo
+   necesita y el motor no puede depender de una pantalla. Estas dos siguen
+   exportándose con el mismo nombre y el mismo contrato de siempre para no
+   tocar a quien ya las usa (analisis.js, asignaturas.js). */
+export const mediaLista = lista => mediaPonderada(lista);
 
-export function mediaGeneral(entrada) {
-  const medias = EVALS.map(e => mediaLista(entrada.evaluaciones[e])).filter(m => m != null);
-  return medias.length ? medias.reduce((a, b) => a + b, 0) / medias.length : null;
-}
+export const mediaGeneral = entrada => mediaDelCurso(entrada?.evaluaciones);
 
 /** Qué media hace falta en las evaluaciones QUE QUEDAN para llegar al
     objetivo, repartiendo el curso a partes iguales entre las tres. Null si ya
