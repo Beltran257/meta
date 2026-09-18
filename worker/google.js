@@ -466,13 +466,24 @@ export async function sondaGoogle(env) {
       const despues = await env.META_DATOS.get(`google:${codigo}`, 'json');
       if (despues?.roto) rotas.push(codigo);
     }
-    /* Se dice QUÉ código hay que reconectar, no solo cuántos. Un aviso que
+    /* Se dice QUÉ conexión hay que reconectar, no solo cuántas: un aviso que
        repite "hay una conexión rota" todos los días sin decir cuál se acaba
-       ignorando, y él tiene dos espacios: sin el código no sabría en cuál
-       entrar. El código de sincronización no es un secreto —se enseña en la
-       propia pantalla de Meta— pero tampoco abre nada por sí solo. */
+       ignorando, y él tiene dos espacios.
+       PERO EL CÓDIGO ENTERO NO PUEDE SALIR DE AQUÍ. `sondaGoogle` la lee
+       `GET /api/salud`, que se resuelve ANTES de la comprobación de sesión
+       (worker/index.js): es una ruta pública. Y el código de espacio ES la
+       llave del feed ICS — `GET /ics/<codigo>.ics` no pide cookie a propósito
+       (worker/index.js, apiIcs). Publicarlo entero regalaba a cualquiera el
+       horario de exámenes y entregas del curso. Y no era un caso raro: con la
+       pantalla de consentimiento "en pruebas" Google caduca el token cada 7
+       días, así que `rotas` casi nunca está vacío.
+       Con dos caracteres sobran para distinguir sus espacios, y quedan 30 bits
+       que el límite por IP hace inservibles. El arreglo de verdad es separar
+       el identificador del espacio del testigo del feed ICS, para poder
+       rotarlo; eso es otro cambio. */
+    const tapado = c => `${String(c).slice(0, 2)}${'·'.repeat(Math.max(0, String(c).length - 2))}`;
     estado = !conectadas ? 'sin conectar'
-      : rotas.length ? `HAY QUE RECONECTAR: ${rotas.join(', ')} (${rotas.length} de ${conectadas})`
+      : rotas.length ? `HAY QUE RECONECTAR: ${rotas.map(tapado).join(', ')} (${rotas.length} de ${conectadas})`
         : 'conectado';
   } catch (e) {
     estado = `error: ${String(e?.message || e).slice(0, 80)}`;
