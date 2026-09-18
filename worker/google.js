@@ -89,7 +89,13 @@ export async function perfilDe(accessToken) {
   });
   if (!r.ok) return null;
   const p = await r.json();
-  return { sub: p.id, email: p.email || '', nombre: p.name || '' };
+  /* `verificado` NO es decorativo: auth.entrarConGoogle lo usa para decidir si
+     puede reconocer una cuenta de meta por el CORREO. Sin él, quien
+     consiguiera una identidad de Google con un correo sin verificar igual al
+     de una cuenta creada con correo+contraseña entraba en su espacio sin
+     saber la contraseña. Es el fallo clásico de enlazar cuentas por un correo
+     que el proveedor no garantiza. */
+  return { sub: p.id, email: p.email || '', nombre: p.name || '', verificado: p.verified_email === true };
 }
 
 export async function emailDe(accessToken) {

@@ -206,9 +206,15 @@ export async function entrar(env, { email, clave, recordar, ip }) {
    tener una cuenta de identidad compartida. Si ya existía una cuenta de
    `cuentas` con el mismo correo, sigue siendo una cuenta LOCAL aparte —
    unificar también Google queda fuera de lo pedido (correo+contraseña). */
-export async function entrarConGoogle(env, { sub, email, nombre, recordar }) {
+export async function entrarConGoogle(env, { sub, email, nombre, verificado, recordar }) {
   let uid = await env.META_DATOS.get(kGoogle(sub));
-  if (!uid && email) uid = await uidPorEmail(env, email);
+  /* Reconocer una cuenta YA EXISTENTE por el correo solo vale si Google dice
+     que ese correo está verificado. Si no, bastaría con tener una identidad de
+     Google que declare el correo de una cuenta de meta creada con
+     correo+contraseña para entrar en su espacio sin saber la contraseña.
+     Un `sub` ya enlazado (la línea de arriba) no pasa por aquí: ese vínculo lo
+     hizo él mismo entrando alguna vez. */
+  if (!uid && email && verificado) uid = await uidPorEmail(env, email);
 
   if (uid) {
     const u = await leerUsuario(env, uid);
