@@ -20,7 +20,19 @@ import { crearBuzon, leerBuzon } from './sync.js';
 const COOKIE = 'meta_ses';
 const VIDA_LARGA = 60 * 60 * 24 * 30;
 const VIDA_CORTA = 60 * 60 * 12;
-const VIDA_USUARIO = 60 * 60 * 24 * 400;
+/* La FICHA de la cuenta (usuario:, email:, gsub:) no caduca, a propósito.
+   Antes llevaba 400 días de vida, y nada la refrescaba al entrar: guardarUsuario
+   solo corre al crear la cuenta, al cambiar la contraseña, al recuperarla, al
+   cambiar el nombre o al enlazar Google la primera vez. Usando la app todos los
+   días pero sin tocar ninguna de esas cosas, la ficha caducaba sola a los 400
+   días. Y entonces leerUsuario devuelve null, usuarioDe devuelve null, y al
+   volver a entrar espacioDeIdentidad no encuentra ni el correo ni el uid: le
+   creaba un ESPACIO NUEVO Y VACÍO. Todo su curso seguiría en KV (el buzón sí se
+   refresca en cada sincronización) pero sin nada que apuntara a él.
+   Son tres claves diminutas por cuenta y borrarCuenta() las borra explícitamente:
+   no hay ninguna razón para que caduquen solas. El buzón (sync:) mantiene su
+   caducidad de un curso largo, que sí se refresca al sincronizar. */
+const VIDA_ESPACIO = 60 * 60 * 24 * 400;
 const VIDA_APARATO = 60 * 60 * 24 * 400;
 
 const CUENTAS = 'https://cuentas.beltranfersan.workers.dev';
@@ -70,14 +82,14 @@ const kGoogle = sub => `gsub:${sub}`;
 const kSesion = hash => `sesion:${hash}`;
 
 export const leerUsuario = (env, uid) => env.META_DATOS.get(kUsuario(uid), 'json');
-const guardarUsuario = (env, u) => env.META_DATOS.put(kUsuario(u.id), JSON.stringify(u), { expirationTtl: VIDA_USUARIO });
+const guardarUsuario = (env, u) => env.META_DATOS.put(kUsuario(u.id), JSON.stringify(u));
 export const uidPorEmail = (env, email) => env.META_DATOS.get(kEmail(email));
 
 async function marcarDuenyo(env, codigo, uid) {
   const buzon = (await leerBuzon(env.META_DATOS, codigo)) || { claves: {}, creado: Date.now() };
   if (buzon.duenyo && buzon.duenyo !== uid) return false;
   buzon.duenyo = uid;
-  await env.META_DATOS.put(`sync:${codigo}`, JSON.stringify(buzon), { expirationTtl: VIDA_USUARIO });
+  await env.META_DATOS.put(`sync:${codigo}`, JSON.stringify(buzon), { expirationTtl: VIDA_ESPACIO });
   return true;
 }
 
@@ -109,7 +121,7 @@ async function espacioDeIdentidad(env, { uid, email, nombre, codigoImportar }) {
 
   const usuario = { id: uid, email, nombre: nombreLimpio(nombre) || (email ? email.split('@')[0] : 'Yo'), creado: Date.now(), generacion: 1, espacio };
   await guardarUsuario(env, usuario);
-  if (email) await env.META_DATOS.put(kEmail(email), uid, { expirationTtl: VIDA_USUARIO });
+  if (email) await env.META_DATOS.put(kEmail(email), uid);
   return { usuario, importado };
 }
 
@@ -220,7 +232,7 @@ export async function entrarConGoogle(env, { sub, email, nombre, verificado, rec
     const u = await leerUsuario(env, uid);
     if (!u) return { error: 'No se encontró la cuenta.', status: 404 };
     if (u.google !== sub) { u.google = sub; await guardarUsuario(env, u); }
-    await env.META_DATOS.put(kGoogle(sub), uid, { expirationTtl: VIDA_USUARIO });
+    await env.META_DATOS.put(kGoogle(sub), uid);
     return { usuario: u, sesion: await crearSesion(env, uid, recordar), nuevo: false };
   }
 
@@ -231,8 +243,8 @@ export async function entrarConGoogle(env, { sub, email, nombre, verificado, rec
     creado: Date.now(), generacion: 1, google: sub, espacio,
   };
   await guardarUsuario(env, usuario);
-  if (usuario.email) await env.META_DATOS.put(kEmail(usuario.email), nuevoId, { expirationTtl: VIDA_USUARIO });
-  await env.META_DATOS.put(kGoogle(sub), nuevoId, { expirationTtl: VIDA_USUARIO });
+  if (usuario.email) await env.META_DATOS.put(kEmail(usuario.email), nuevoId);
+  await env.META_DATOS.put(kGoogle(sub), nuevoId);
   await marcarDuenyo(env, espacio, nuevoId);
   return { usuario, sesion: await crearSesion(env, nuevoId, recordar), nuevo: true };
 }
