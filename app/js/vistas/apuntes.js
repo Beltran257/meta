@@ -16,7 +16,7 @@ import { escapa, hoyLocal, fechaCorta } from '../core/fmt.js';
 import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { temasDe, temaDe } from '../core/temas.js';
 import { guardarBlob, leerBlob, borrarBlob } from '../core/apuntesdb.js';
-import { subirArchivo, borrarArchivoRemoto, bajarArchivoSiFalta } from '../core/archivos.js';
+import { subirArchivo, borrarArchivoRemoto, bajarArchivoSiFalta, reducirFoto } from '../core/archivos.js';
 
 const nuevoId = () => 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -350,13 +350,14 @@ function formArchivo(tipo) {
 accion('apunte-archivo-guardar', async (d, el) => {
   const v = el.closest('.hoja');
   const titulo = v.querySelector('#ap-titulo-f').value.trim();
-  const archivo = v.querySelector('#ap-archivo').files?.[0];
+  const elegido = v.querySelector('#ap-archivo').files?.[0];
   if (!titulo) return aviso('Ponle un título', 'mal');
-  if (!archivo) return aviso('Elige un archivo', 'mal');
+  if (!elegido) return aviso('Elige un archivo', 'mal');
 
   el.disabled = true;
   const id = nuevoId();
   try {
+    const archivo = d.tipo === 'foto' ? await reducirFoto(elegido) : elegido;
     await guardarBlob(id, archivo, d.tipo);
     const nuevo = {
       id, tipo: d.tipo, titulo,

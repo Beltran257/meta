@@ -9,6 +9,50 @@
    =========================================================================== */
 import * as sesion from './sesion.js';
 
+/* Una foto del iPhone pesa 3-5 MB y el espacio de archivos de la cuenta (KV,
+   ver worker/archivos.js) ronda 1 GB: unas 330 fotos lo llenaban. Para leer
+   unos apuntes o una pizarra sobran 2000 px en el lado largo, y en JPEG al
+   85 % se quedan en unos cientos de KB. Se reduce antes de guardar, así que
+   también ocupa menos en IndexedDB. Si algo falla —un HEIC que este
+   navegador no sabe abrir, un lienzo sin memoria— se guarda la original:
+   nunca se pierde una foto por esto. */
+export const LADO_MAX = 2000;
+const CALIDAD = 0.85;
+// Por debajo de esto y sin pasarse de LADO_MAX no se recomprime: una captura
+// de pantalla en PNG pierde nitidez en JPEG y no gana casi nada.
+const PESO_SIN_TOCAR = 1024 * 1024;
+
+export function medidaReducida(ancho, alto, max = LADO_MAX) {
+  const lado = Math.max(ancho, alto);
+  if (!(lado > max)) return { ancho, alto, reducir: false };
+  const f = max / lado;
+  return { ancho: Math.round(ancho * f), alto: Math.round(alto * f), reducir: true };
+}
+
+export async function reducirFoto(archivo) {
+  let url;
+  try {
+    url = URL.createObjectURL(archivo);
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    // naturalWidth/Height ya vienen girados según el EXIF (image-orientation
+    // from-image, lo normal en todos los navegadores desde 2020).
+    const m = medidaReducida(img.naturalWidth, img.naturalHeight);
+    if (!m.reducir && archivo.size <= PESO_SIN_TOCAR) return archivo;
+    const lienzo = document.createElement('canvas');
+    lienzo.width = m.ancho;
+    lienzo.height = m.alto;
+    lienzo.getContext('2d').drawImage(img, 0, 0, m.ancho, m.alto);
+    const reducida = await new Promise(res => lienzo.toBlob(res, 'image/jpeg', CALIDAD));
+    return reducida && reducida.size < archivo.size ? reducida : archivo;
+  } catch {
+    return archivo;
+  } finally {
+    if (url) URL.revokeObjectURL(url);
+  }
+}
+
 /** Sube el archivo real al espacio de la cuenta. No usa sesion.pedir() porque
     ese fuerza JSON; aquí el cuerpo son los bytes del archivo tal cual. */
 export async function subirArchivo(a, blob) {
