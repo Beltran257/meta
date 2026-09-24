@@ -126,8 +126,10 @@ async function archivosLocales(carpetasAsig) {
 /* El Escritorio está en iCloud, y iCloud deja en la nube ("dataless") los
    archivos que no se abren. Desde este LaunchAgent leerlos da `Unknown system
    error -11` (EAGAIN): el sistema no los baja para un proceso en segundo
-   plano. Pasó de verdad: dos PDF de Filosofía fallaron en cada pasada durante
-   semanas y nunca llegaron a Meta, con el aviso enterrado en registro.log.
+   plano. Pasó de verdad con dos PDF de Filosofía: fallaron en cada pasada
+   (uno desde que se modificó el 21 sep, otro desde que entró en la carpeta el
+   23) y ESQUEMA_SÓCRATES.pdf no llegó nunca a Meta, con el aviso enterrado en
+   registro.log.
    Ahora se le pide a iCloud que lo baje y se lee EN LA MISMA PASADA en cuanto
    llega: esperar a la siguiente no sirve, porque en esos minutos iCloud lo
    vuelve a dejar en la nube (visto el 24 sep con ESQUEMA_SÓCRATES.pdf). */
