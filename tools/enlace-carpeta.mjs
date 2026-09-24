@@ -16,6 +16,7 @@
    =========================================================================== */
 
 import { readFile, writeFile, readdir, stat, mkdir } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
 import path from 'node:path';
 import os from 'node:os';
 
@@ -122,6 +123,19 @@ async function archivosLocales(carpetasAsig) {
 
 /* ------------------------------- subir cambios ------------------------------ */
 
+/* El Escritorio está en iCloud, y iCloud deja en la nube ("dataless") los
+   archivos que no se abren. Desde este LaunchAgent leerlos da `Unknown system
+   error -11` (EAGAIN): el sistema no los baja para un proceso en segundo
+   plano. Pasó de verdad: dos PDF de Filosofía fallaron en cada pasada durante
+   semanas y nunca llegaron a Meta, con el aviso enterrado en registro.log.
+   Ahora se le pide a iCloud que lo baje y se sube en la pasada siguiente. */
+export const soloEnICloud = e =>
+  e?.errno === -11 || e?.code === 'EAGAIN' || /system error -11\b/.test(String(e?.message));
+
+export function pideAICloud(ruta, ejecuta = execFile) {
+  return new Promise(res => ejecuta('/usr/bin/brctl', ['download', ruta], err => res(!err)));
+}
+
 async function subirCambios(token, manifest, carpetasAsig) {
   let subidos = 0;
   for (const f of await archivosLocales(carpetasAsig)) {
@@ -156,7 +170,14 @@ async function subirCambios(token, manifest, carpetasAsig) {
       manifest[f.relPath] = { id, mtimeMs: st.mtimeMs, size: st.size, origen: 'local' };
       subidos++;
     } catch (e) {
-      console.error(`No se pudo subir "${f.relPath}": ${e.message}`);
+      if (soloEnICloud(e)) {
+        const pedido = await pideAICloud(f.rutaAbs);
+        console.error(pedido
+          ? `"${f.relPath}" está solo en iCloud: pedido que lo baje, se sube en la próxima pasada`
+          : `"${f.relPath}" está solo en iCloud y no se pudo pedir que lo baje: ábrelo una vez en el Finder`);
+      } else {
+        console.error(`No se pudo subir "${f.relPath}": ${e.message}`);
+      }
     }
   }
   if (subidos) console.log(`enlace-carpeta: subidos ${subidos} archivo(s)`);
@@ -251,4 +272,8 @@ async function main() {
   await guardarManifest(manifest);
 }
 
-main().catch(e => { console.error('enlace-carpeta:', e.message); process.exit(1); });
+// META_ENLACE_PRUEBA solo lo pone tools/prueba-enlace.mjs, para cargar las
+// funciones sin sincronizar de verdad. El LaunchAgent no la define nunca.
+if (!process.env.META_ENLACE_PRUEBA) {
+  main().catch(e => { console.error('enlace-carpeta:', e.message); process.exit(1); });
+}
