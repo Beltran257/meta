@@ -133,10 +133,7 @@ function render() {
         <h3>Enlace de calendario</h3>
         <p class="parrafo chico">Suscríbelo en Calendario de Apple, Google Calendar u Outlook a la vez.
         Este enlace es privado: quien lo tenga verá tus tareas y exámenes.</p>
-        <div class="campo" data-mt>
-          <input type="text" readonly value="${escapa(sync.urlIcs() || '')}" id="ics-url" data-accion="ics-sel">
-        </div>
-        <button class="boton fantasma ancho" data-accion="ics-copiar">Copiar enlace</button>
+        <div id="bloque-ics">${cargandoChico()}</div>
       </div>
       <div class="tarjeta">
         <h3>Enlace de carpeta</h3>
@@ -183,7 +180,7 @@ function render() {
     });
   });
 
-  cargarGoogle(); cargarMicrosoft(); cargarNotion(); cargarNotebookLM();
+  cargarGoogle(); cargarMicrosoft(); cargarNotion(); cargarNotebookLM(); cargarIcs();
 }
 
 const cargandoChico = () => '<p class="parrafo chico">Comprobando…</p>';
@@ -515,10 +512,47 @@ accion('enlace-carpeta-generar', async (d, el) => {
   }
 });
 
+/* ------------------------- enlace del calendario ----------------------------
+   Propio y cambiable (ver worker/feed.js). Antes era el código del espacio,
+   que no se podía cambiar: si el enlace se escapaba, no había forma de
+   cortarlo. */
+async function cargarIcs() {
+  const el = document.querySelector('#bloque-ics');
+  if (!el) return;
+  try { pintarIcs(el, await sesion.pedir('/api/ics')); }
+  catch { el.innerHTML = '<p class="parrafo chico">El enlace no está disponible en este momento.</p>'; }
+}
+
+function pintarIcs(el, { ruta, antiguoCerrado }) {
+  el.innerHTML = `
+    <div class="campo" data-mt>
+      <input type="text" readonly value="${escapa(location.origin + ruta)}" id="ics-url" data-accion="ics-sel">
+    </div>
+    <button class="boton fantasma ancho" data-accion="ics-copiar">Copiar enlace</button>
+    <p class="parrafo chico" data-mt>${antiguoCerrado
+      ? 'Si crees que alguien más lo tiene, cámbialo: el actual deja de funcionar al momento.'
+      : 'El enlace antiguo, el que llevaba el código de tu espacio, sigue funcionando hasta que cambies este.'}</p>
+    <button class="boton fantasma ancho" data-accion="ics-renovar">Cambiar el enlace</button>`;
+}
+
+accion('ics-renovar', async (d, el) => {
+  if (!await confirmar('El enlace actual deja de funcionar, y el antiguo también. Tendrás que volver a suscribirte en tus calendarios con el nuevo.', 'Cambiar el enlace')) return;
+  el.disabled = true;
+  try {
+    const r = await sesion.pedir('/api/ics/renovar', { metodo: 'POST' });
+    const bloque = document.querySelector('#bloque-ics');
+    if (bloque) pintarIcs(bloque, r);
+    aviso('Enlace cambiado: suscríbete de nuevo con este');
+  } catch (e) {
+    aviso(e.message || 'No se pudo cambiar', 'mal');
+    el.disabled = false;
+  }
+});
+
 accion('ics-sel', (d, el) => el.select());
 
 accion('ics-copiar', async () => {
-  const url = sync.urlIcs();
+  const url = document.querySelector('#ics-url')?.value;
   if (!url) return;
   try { await navigator.clipboard.writeText(url); aviso('Enlace copiado'); }
   catch { document.querySelector('#ics-url')?.select(); aviso('Selecciónalo y cópialo a mano'); }

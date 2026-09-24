@@ -95,9 +95,3 @@ export function arrancar() {
   on('local-cambio', masTarde);
 }
 
-/** URL del feed ICS de esta cuenta, para suscribirlo en Calendario de Apple,
-    Google Calendar u Outlook. */
-export function urlIcs() {
-  const u = sesion.usuario();
-  return u?.espacio ? `${location.origin}/ics/${u.espacio}.ics` : null;
-}

@@ -24,6 +24,7 @@ import { extraerTexto } from './ocr.js';
 import { resumenBriefing } from './briefing.js';
 import { historicoSalud } from './historico.js';
 import { cookieVinculo, anotaVinculo } from './vinculo.js';
+import { enlaceDe, renovarEnlace, espacioDelFeed } from './feed.js';
 
 const ORIGEN = 'https://meta.beltranfersan.workers.dev';
 
@@ -265,18 +266,25 @@ async function apiDatos(request, env, ctx, usuario) {
 }
 
 /* ===========================================================================
-   FEED ICS — GET /ics/<codigo>.ics
+   FEED ICS — GET /ics/<enlace>.ics (y el antiguo /ics/<codigo>.ics)
    Sin cookie a propósito: Apple Calendar, Google Calendar y Outlook no saben
-   iniciar sesión. El enlace ES la llave, y por eso el código es largo y el
-   limitador por IP también cubre esta ruta.
+   iniciar sesión. El enlace ES la llave, y por eso es largo y el limitador
+   por IP también cubre esta ruta. El enlace propio y cómo se cambia están en
+   worker/feed.js.
    =========================================================================== */
-async function apiIcs(codigoConExtension, env) {
-  const codigo = normaliza(codigoConExtension.replace(/\.ics$/i, ''));
-  if (!codigoValido(codigo)) return new Response('código no válido', { status: 400 });
+const RE_ENLACE_ICS = /^f[0-9a-f]{32}$/;
+
+async function apiIcs(pedidoConExtension, env) {
+  const crudo = pedidoConExtension.replace(/\.ics$/i, '');
+  // El enlace nuevo va en minúsculas; normaliza() lo pasaría a mayúsculas.
+  const pedido = RE_ENLACE_ICS.test(crudo) ? crudo : normaliza(crudo);
+  if (!RE_ENLACE_ICS.test(pedido) && !codigoValido(pedido)) return new Response('enlace no válido', { status: 400 });
   if (!env.META_DATOS) return new Response('almacenamiento no disponible', { status: 503 });
 
+  const codigo = await espacioDelFeed(env, pedido, codigoValido);
+  if (!codigo) return new Response('ese enlace no existe', { status: 404 });
   const buzon = await leerBuzon(env.META_DATOS, codigo);
-  if (!buzon) return new Response('ese código no existe', { status: 404 });
+  if (!buzon) return new Response('ese enlace no existe', { status: 404 });
 
   return new Response(construirIcs(buzon, codigo), {
     status: 200,
@@ -656,6 +664,7 @@ const ESCRIBEN = [
   '/api/notion/conectar', '/api/notion/desconectar',
   '/api/archivos/subir', '/api/archivos/borrar',
   '/api/notebooklm/sincronizar',
+  '/api/ics/renovar',
   // La pide Salud por service binding, pero también valdría la cookie: sin
   // esto, una web cualquiera podría hacer que le apareciera un evento en su
   // calendario. Salud manda la cabecera igual que manda X-Salud en la suya.
@@ -770,6 +779,17 @@ export default {
       if (url.pathname === '/api/microsoft/estado') return await apiMicrosoft.estado(env, usuario);
       if (url.pathname === '/api/microsoft/desconectar') return await apiMicrosoft.desconectar(env, usuario);
       if (url.pathname.startsWith('/api/notion/')) return await apiNotion(url, env, usuario);
+      // Enlace del calendario (worker/feed.js). Se devuelve la ruta, no la URL
+      // entera: el origen lo pone la app, igual que antes.
+      if (url.pathname === '/api/ics') {
+        const { enlace, antiguoCerrado } = await enlaceDe(env, usuario.espacio);
+        return json({ ruta: `/ics/${enlace}.ics`, antiguoCerrado }, 200);
+      }
+      if (url.pathname === '/api/ics/renovar') {
+        if (request.method !== 'POST') return json({ error: 'metodo no permitido' }, 405);
+        const { enlace, antiguoCerrado } = await renovarEnlace(env, usuario.espacio);
+        return json({ ruta: `/ics/${enlace}.ics`, antiguoCerrado }, 200);
+      }
 
       return json({ error: 'ruta desconocida' }, 404);
     } catch (e) {
