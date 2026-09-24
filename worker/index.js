@@ -23,6 +23,7 @@ import * as notebooklm from './notebooklm.js';
 import { extraerTexto } from './ocr.js';
 import { resumenBriefing } from './briefing.js';
 import { historicoSalud } from './historico.js';
+import { cookieVinculo, anotaVinculo } from './vinculo.js';
 
 const ORIGEN = 'https://meta.beltranfersan.workers.dev';
 
@@ -110,8 +111,12 @@ async function apiAuth(request, url, env, ctx) {
        el de conectar el calendario, y la vuelta lo canjea — sin eso, un enlace
        preparado por otro podía dejar la sesión de Beltrán abierta con LA CUENTA
        DE GOOGLE DEL ATACANTE, y todo lo que apuntara después iría a parar ahí. */
-    const estado = await nuevoEstadoOAuth(env, 'login', null);
-    return redirigir(google.urlLogin(env, `${ORIGEN}/api/oauth/google/callback`, `login${recordar}:${estado}`));
+    // pwa: si el botón se pulsó desde la app instalada. Solo para la
+    // observación de worker/vinculo.js, que es lo que falta saber del iPhone.
+    const pwa = url.searchParams.get('pwa') === '1';
+    const estado = await nuevoEstadoOAuth(env, 'login', null, { pwa });
+    return redirigir(google.urlLogin(env, `${ORIGEN}/api/oauth/google/callback`, `login${recordar}:${estado}`),
+      cookieVinculo(estado));
   }
 
   if (request.method !== 'POST') return json({ error: 'metodo no permitido' }, 405);
@@ -308,10 +313,10 @@ const TTL_ESTADO_OAUTH = 600;
 const kEstadoOAuth = s => `oauth:estado:${s}`;
 const RE_ESTADO_OAUTH = /^[0-9a-f]{32}$/;
 
-async function nuevoEstadoOAuth(env, prov, espacio) {
+async function nuevoEstadoOAuth(env, prov, espacio, extra = {}) {
   const s = [...crypto.getRandomValues(new Uint8Array(16))]
     .map(b => b.toString(16).padStart(2, '0')).join('');
-  await env.META_DATOS.put(kEstadoOAuth(s), JSON.stringify({ prov, espacio, creado: Date.now() }),
+  await env.META_DATOS.put(kEstadoOAuth(s), JSON.stringify({ ...extra, prov, espacio, creado: Date.now() }),
     { expirationTtl: TTL_ESTADO_OAUTH });
   return s;
 }
@@ -325,7 +330,8 @@ async function canjearEstadoOAuth(env, prov, s) {
   if (!guardado || guardado.prov !== prov) return null;
   // En el flujo de "entrar con Google" no hay espacio todavía (la cuenta puede
   // ni existir): lo que se comprueba es solo que el state sea nuestro y nuevo.
-  if (prov === 'login') return true;
+  // Se devuelve lo guardado (siempre verdadero) por el `pwa` de vinculo.js.
+  if (prov === 'login') return guardado;
   return codigoValido(guardado.espacio) ? guardado.espacio : null;
 }
 
@@ -383,7 +389,7 @@ const apiMicrosoft = fabricaProveedor('microsoft', microsoft, REDIRECT_MS);
        para "conectar mi calendario". Lo que los distingue es el prefijo del
        parámetro state, que es cosa nuestra y no de Google — así no hace falta
        registrar una segunda URL de retorno en la consola. ------------------ */
-async function callbackGoogle(url, env) {
+async function callbackGoogle(url, env, request) {
   const state = url.searchParams.get('state') || '';
   if (!state.startsWith('login')) return apiGoogle.callback(url, env);
 
@@ -392,9 +398,11 @@ async function callbackGoogle(url, env) {
   if (url.searchParams.get('error') || !code) return redirigir(`${ORIGEN}/?entrar=cancelado`);
   // El state tiene que ser uno que HAYA EMITIDO esta app, y de un solo uso.
   // El state es `login0:<32 hex>` o `login1:<32 hex>`: lo de después de los dos puntos.
-  if (!(await canjearEstadoOAuth(env, 'login', state.slice(state.indexOf(':') + 1)))) {
-    return redirigir(`${ORIGEN}/?entrar=error`);
-  }
+  const nonce = state.slice(state.indexOf(':') + 1);
+  const emitido = await canjearEstadoOAuth(env, 'login', nonce);
+  if (!emitido) return redirigir(`${ORIGEN}/?entrar=error`);
+  // Solo se anota si volvió la cookie; todavía no se exige (ver vinculo.js).
+  await anotaVinculo(env, request, nonce, emitido.pwa).catch(() => {});
 
   try {
     const tokens = await google.intercambiarCodigo(env, code, REDIRECT_GOOGLE);
@@ -690,7 +698,7 @@ export default {
       if (url.pathname === '/api/salud') return await apiSalud(env);
       if (url.pathname === '/api/interno/backup') return await apiInternoBackup(request, env);
       if (url.pathname.startsWith('/api/auth/')) return await apiAuth(request, url, env, ctx);
-      if (url.pathname === '/api/oauth/google/callback') return await callbackGoogle(url, env);
+      if (url.pathname === '/api/oauth/google/callback') return await callbackGoogle(url, env, request);
       if (url.pathname === '/api/oauth/microsoft/callback') return await apiMicrosoft.callback(url, env);
       if (url.pathname === '/api/google/conectar') return await apiGoogle.conectar(request, env);
       if (url.pathname === '/api/microsoft/conectar') return await apiMicrosoft.conectar(request, env);

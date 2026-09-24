@@ -120,7 +120,13 @@ export async function entrar({ email, contrasena, recordar }) {
 
 /** Entrar con Google es una NAVEGACIÓN de verdad, nunca un fetch: el flujo
     OAuth tiene que salir del sitio y volver. */
-export const urlGoogle = recordar => `/api/auth/google?recordar=${recordar ? '1' : '0'}`;
+// pwa=1 si se entra desde la app instalada: el servidor lo anota para saber si
+// la cookie del inicio con Google sobrevive en el iPhone (worker/vinculo.js).
+const enAppInstalada = () =>
+  (typeof matchMedia === 'function' && matchMedia('(display-mode: standalone)').matches)
+  || (typeof navigator !== 'undefined' && navigator.standalone === true);
+export const urlGoogle = recordar =>
+  `/api/auth/google?recordar=${recordar ? '1' : '0'}&pwa=${enAppInstalada() ? '1' : '0'}`;
 
 export async function salir() {
   try { await pedir('/api/auth/salir', { metodo: 'POST' }); } catch { /* igual se sale en local */ }
