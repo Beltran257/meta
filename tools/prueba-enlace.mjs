@@ -2,13 +2,14 @@
    PRUEBA DEL ENLACE DE CARPETA — sin red ni iCloud. Un PDF que iCloud había
    dejado solo en la nube fallaba al leerse desde el LaunchAgent con
    "Unknown system error -11" en cada pasada, y nunca llegaba a Meta. Se
-   prueba que ese error se reconoce (y solo ese) y que entonces se le pide a
-   iCloud el archivo con brctl.
+   prueba que ese error se reconoce (y solo ese), que entonces se le pide a
+   iCloud el archivo con brctl y que se lee en la misma pasada en cuanto
+   llega (esperar a la siguiente no sirve: iCloud lo vuelve a quitar).
 
    Uso:  node tools/prueba-enlace.mjs
    =========================================================================== */
 process.env.META_ENLACE_PRUEBA = '1';
-const { soloEnICloud, pideAICloud } = await import('./enlace-carpeta.mjs');
+const { soloEnICloud, pideAICloud, leeConICloud } = await import('./enlace-carpeta.mjs');
 
 let fallos = 0;
 const mal = m => { console.log('❌ ' + m); fallos++; };
@@ -32,6 +33,28 @@ ok && JSON.stringify(llamadas[0]) === JSON.stringify(['/usr/bin/brctl', 'downloa
 
 const falla = await pideAICloud('/x.pdf', (cmd, args, cb) => cb(new Error('brctl: not permitted')));
 falla === false ? bien('si brctl falla se sabe, no se da por pedido') : mal('un brctl fallido se da por bueno');
+
+// Lo que pasó el 24 sep: pedirlo y esperar a la pasada siguiente no basta,
+// iCloud lo vuelve a dejar en la nube. Se lee en la misma pasada, en cuanto llega.
+{
+  let lecturas = 0, pedidos = 0, esperas = 0;
+  const lee = async () => { if (++lecturas < 3) throw deICloud; return Buffer.from('pdf'); };
+  const r = await leeConICloud('/x.pdf', { lee, pide: async () => { pedidos++; return true; }, espera: async () => { esperas++; } });
+  String(r) === 'pdf' && pedidos === 1 && esperas === 2
+    ? bien('si está en la nube, se pide una vez y se lee en la misma pasada en cuanto llega')
+    : mal(`lectura con iCloud: ${String(r)}, ${pedidos} pedido(s), ${esperas} espera(s)`);
+
+  let siempre = 0;
+  const nunca = async () => { siempre++; throw deICloud; };
+  const fin = await leeConICloud('/x.pdf', { lee: nunca, pide: async () => true, espera: async () => {}, intentos: 3 }).then(() => 'leído', e => e);
+  fin === deICloud && siempre === 4 ? bien('si nunca llega, se rinde tras los intentos y lo deja para la próxima pasada')
+    : mal(`sin llegar nunca: ${fin}, ${siempre} lecturas`);
+
+  let pedidosOtro = 0;
+  const otro = await leeConICloud('/x.pdf', { lee: async () => { throw noExiste; }, pide: async () => { pedidosOtro++; }, espera: async () => {} }).then(() => 'leído', e => e);
+  otro === noExiste && pedidosOtro === 0 ? bien('otro error no se toca: ni se pide a iCloud ni se reintenta')
+    : mal('un ENOENT se trató como iCloud');
+}
 
 console.log(fallos ? `\n${fallos} fallo(s)` : '\ntodo bien');
 process.exit(fallos ? 1 : 0);

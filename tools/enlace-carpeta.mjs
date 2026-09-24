@@ -128,12 +128,30 @@ async function archivosLocales(carpetasAsig) {
    error -11` (EAGAIN): el sistema no los baja para un proceso en segundo
    plano. Pasó de verdad: dos PDF de Filosofía fallaron en cada pasada durante
    semanas y nunca llegaron a Meta, con el aviso enterrado en registro.log.
-   Ahora se le pide a iCloud que lo baje y se sube en la pasada siguiente. */
+   Ahora se le pide a iCloud que lo baje y se lee EN LA MISMA PASADA en cuanto
+   llega: esperar a la siguiente no sirve, porque en esos minutos iCloud lo
+   vuelve a dejar en la nube (visto el 24 sep con ESQUEMA_SÓCRATES.pdf). */
 export const soloEnICloud = e =>
   e?.errno === -11 || e?.code === 'EAGAIN' || /system error -11\b/.test(String(e?.message));
 
 export function pideAICloud(ruta, ejecuta = execFile) {
   return new Promise(res => ejecuta('/usr/bin/brctl', ['download', ruta], err => res(!err)));
+}
+
+const esperar = ms => new Promise(r => setTimeout(r, ms));
+
+/** readFile, pero si el archivo está solo en iCloud lo pide y reintenta hasta
+    `intentos` veces, cada 5 s. Cualquier otro error sale tal cual. */
+export async function leeConICloud(ruta, { lee = readFile, pide = pideAICloud, espera = esperar, intentos = 6 } = {}) {
+  try { return await lee(ruta); } catch (e) {
+    if (!soloEnICloud(e)) throw e;
+    await pide(ruta);
+    for (let i = 0; i < intentos; i++) {
+      await espera(5000);
+      try { return await lee(ruta); } catch (e2) { if (!soloEnICloud(e2)) throw e2; }
+    }
+    throw e;
+  }
 }
 
 async function subirCambios(token, manifest, carpetasAsig) {
@@ -151,6 +169,14 @@ async function subirCambios(token, manifest, carpetasAsig) {
     const titulo = path.basename(f.nombre, ext);
     const mime = tipo === 'pdf' ? 'application/pdf' : `image/${ext === '.jpg' ? 'jpeg' : ext.slice(1)}`;
 
+    let cuerpo;
+    try { cuerpo = await leeConICloud(f.rutaAbs); } catch (e) {
+      console.error(soloEnICloud(e)
+        ? `"${f.relPath}" sigue solo en iCloud aunque se ha pedido: se reintenta en la próxima pasada`
+        : `No se pudo leer "${f.relPath}": ${e.message}`);
+      continue;
+    }
+
     try {
       await pedir(token, '/api/archivos/subir', {
         method: 'POST',
@@ -165,19 +191,12 @@ async function subirCambios(token, manifest, carpetasAsig) {
           'X-Meta-Fecha': new Date(st.mtimeMs).toISOString().slice(0, 10),
           'X-Meta-Mime': mime,
         },
-        body: await readFile(f.rutaAbs),
+        body: cuerpo,
       });
       manifest[f.relPath] = { id, mtimeMs: st.mtimeMs, size: st.size, origen: 'local' };
       subidos++;
     } catch (e) {
-      if (soloEnICloud(e)) {
-        const pedido = await pideAICloud(f.rutaAbs);
-        console.error(pedido
-          ? `"${f.relPath}" está solo en iCloud: pedido que lo baje, se sube en la próxima pasada`
-          : `"${f.relPath}" está solo en iCloud y no se pudo pedir que lo baje: ábrelo una vez en el Finder`);
-      } else {
-        console.error(`No se pudo subir "${f.relPath}": ${e.message}`);
-      }
+      console.error(`No se pudo subir "${f.relPath}": ${e.message}`);
     }
   }
   if (subidos) console.log(`enlace-carpeta: subidos ${subidos} archivo(s)`);
