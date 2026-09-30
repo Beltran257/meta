@@ -13,6 +13,7 @@ import { escapa, fechaLarga, fechaCorta, diaSemana, diasHasta, textoCountdown, d
 import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { temasDe, crearTema } from '../core/temas.js';
 import * as motor from '../core/motor.js';
+import * as sesion from '../core/sesion.js';
 import { formTarea, guardarTareas } from './tareas.js';
 
 let raiz = null;
@@ -192,6 +193,71 @@ accion('examen-ia', d => {
   emitir('abrir-ia', { accion: 'prepara-examen', examen: e });
 });
 
+/* ------------------- importar del calendario del instituto -----------------
+   Lee el Outlook del centro (worker/microsoft.js, P5) y propone lo que parece
+   un examen o una entrega. Nada se apunta solo: cada fila se importa con un
+   botón. Lo importado lleva `origenMs` (el id del evento): así no se propone
+   dos veces y META no lo escribe de vuelta en el calendario del instituto. */
+let propuestos = [];
+const norm = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+function asignaturaProbable(titulo) {
+  const t = norm(titulo);
+  const a = contenido().find(x => norm(x.nombre).split(/\s+/).some(p => p.length >= 5 && t.includes(p)));
+  return a ? a.id : '';
+}
+
+function yaApuntado(c) {
+  return motor.listaTareas().some(t => t.origenMs === c.id || (t.fecha === c.fecha && norm(t.titulo) === norm(c.titulo)));
+}
+
+function pintarCentro() {
+  const filas = propuestos.map((c, i) => {
+    const hecho = yaApuntado(c);
+    return `
+      <div class="fila">
+        <span class="izq">
+          <span class="t1">${escapa(c.titulo)}</span>
+          <span class="t2">${escapa(fechaLarga(c.fecha))} · ${c.tipo === 'examen' ? 'examen' : 'entrega'}</span>
+        </span>
+        <span class="der">${hecho ? '<span class="n2">Ya apuntado</span>'
+          : `<button class="boton chico" data-accion="examen-importar" data-i="${i}">Importar</button>`}</span>
+      </div>`;
+  }).join('');
+  hoja({
+    titulo: 'Calendario del instituto',
+    ancha: true,
+    cuerpo: propuestos.length
+      ? `<p class="parrafo chico">Eventos de los próximos seis meses que parecen un examen o una entrega. Elige cuáles apuntar.</p>
+         <div class="lista">${filas}</div>`
+      : '<p class="parrafo chico">No hay nada que parezca un examen o una entrega en los próximos seis meses.</p>',
+  });
+}
+
+accion('examen-centro', async () => {
+  try {
+    aviso('Leyendo el calendario del instituto…');
+    propuestos = (await sesion.pedir('/api/microsoft/eventos')).eventos || [];
+    pintarCentro();
+  } catch (e) {
+    aviso(e.message || 'No se pudo leer el calendario del instituto', 'mal');
+  }
+});
+
+accion('examen-importar', d => {
+  const c = propuestos[Number(d.i)];
+  if (!c || yaApuntado(c)) return;
+  guardarTareas([...motor.listaTareas(), {
+    id: 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    titulo: c.titulo, fecha: c.fecha, tipo: c.tipo === 'examen' ? 'examen' : 'tarea',
+    asignaturaId: asignaturaProbable(c.titulo), notas: '', prioridad: 'normal', dificultad: 2,
+    duracion: 45, temaIds: [], estado: 'pendiente', hecho: false, creado: Date.now(),
+    origenMs: c.id,
+  }]);
+  pintarCentro();
+  aviso('Apuntado');
+});
+
 /* --------------------------------- render ---------------------------------- */
 
 function render() {
@@ -215,7 +281,10 @@ function render() {
   raiz.innerHTML = `
     <div class="seccion-cab">
       <h2>Exámenes</h2>
-      <button class="acc" data-accion="examen-nuevo">+ Nuevo</button>
+      <span>
+        <button class="acc" data-accion="examen-centro">Del instituto</button>
+        <button class="acc" data-accion="examen-nuevo">+ Nuevo</button>
+      </span>
     </div>
 
     ${proximos.length ? proximos.map(tarjetaExamen).join('') : `

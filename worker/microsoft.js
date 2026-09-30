@@ -106,7 +106,9 @@ export async function reconciliar(env, codigo, buzon) {
   if (!accessToken) return;
 
   const asignaturas = buzon?.claves?.asignaturas?.datos || [];
-  const tareas = (buzon?.claves?.tareas?.datos || []).filter(t => t.fecha);
+  // Lo importado DEL calendario del centro (origenMs) ya vive ahí: escribirlo
+  // de vuelta lo duplicaría en el propio calendario del instituto.
+  const tareas = (buzon?.claves?.tareas?.datos || []).filter(t => t.fecha && !t.origenMs);
   const nombreDe = id => asignaturas.find(a => a.id === id)?.nombre || 'Sin asignatura';
 
   const mk = `msmap:${codigo}`;
@@ -131,6 +133,54 @@ export async function reconciliar(env, codigo, buzon) {
   }
 
   await env.META_DATOS.put(mk, JSON.stringify(mapa));
+}
+
+/* ---------------------- LEER el calendario del centro (P5) ----------------------
+   Con el mismo scope (Calendars.ReadWrite) que ya escribe las tareas. Solo se
+   devuelven los eventos que PARECEN un examen o una entrega, y solo título y
+   día: el resto del calendario del instituto no sale de aquí. Se descartan los
+   que creó META (están en `msmap:` y llevan el prefijo "Examen:"/"Entrega:"),
+   porque proponerle sus propias tareas de vuelta sería un bucle. */
+const RE_EXAMEN = /\b(examen(es)?|control|prueba|parcial|evaluaci[oó]n|recuperaci[oó]n)\b/i;
+const RE_ENTREGA = /\b(entrega|trabajo)\b/i;
+const RE_PROPIO = /^(Examen|Entrega): /;
+
+/** Función pura: de los eventos de Graph a lo que se propone importar. */
+export function candidatosDeEventos(eventos, propios = new Set()) {
+  const vistos = new Set();
+  const salida = [];
+  for (const e of eventos || []) {
+    const titulo = String(e?.subject || '').trim();
+    const fecha = String(e?.start?.dateTime || '').slice(0, 10);
+    if (!titulo || !/^\d{4}-\d{2}-\d{2}$/.test(fecha) || e.isCancelled) continue;
+    if (propios.has(e.id) || RE_PROPIO.test(titulo)) continue;
+    const tipo = RE_EXAMEN.test(titulo) ? 'examen' : RE_ENTREGA.test(titulo) ? 'entrega' : null;
+    if (!tipo || vistos.has(e.id)) continue;
+    vistos.add(e.id);
+    salida.push({ id: String(e.id), titulo: titulo.slice(0, 120), fecha, tipo });
+  }
+  return salida.sort((a, b) => a.fecha.localeCompare(b.fecha)).slice(0, 50);
+}
+
+export async function eventosDelCentro(env, codigo, ahora = new Date()) {
+  const accessToken = await accessTokenDe(env, codigo);
+  if (!accessToken) return { error: 'Outlook no está conectado.', status: 409 };
+  const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const hasta = new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate() + 180);
+  const q = new URLSearchParams({
+    startDateTime: `${ymd(ahora)}T00:00:00`, endDateTime: `${ymd(hasta)}T00:00:00`,
+    $select: 'id,subject,start,isCancelled', $top: '250', $orderby: 'start/dateTime',
+  });
+  const r = await fetch(`${GRAPH}/me/calendarView?${q}`, {
+    headers: { Authorization: `Bearer ${accessToken}`, Prefer: 'outlook.timezone="Europe/Madrid"' },
+  });
+  if (r.status === 401 || r.status === 403) {
+    return { error: 'Microsoft no deja leer el calendario: vuelve a conectar Outlook.', status: 409 };
+  }
+  if (!r.ok) return { error: 'No se pudo leer el calendario del instituto.', status: 502 };
+  const mapa = (await env.META_DATOS.get(`msmap:${codigo}`, 'json')) || {};
+  const propios = new Set(Object.values(mapa));
+  return { eventos: candidatosDeEventos((await r.json()).value, propios) };
 }
 
 export async function estadoConexion(env, codigo) {

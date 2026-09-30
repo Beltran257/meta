@@ -778,6 +778,11 @@ export default {
       if (url.pathname === '/api/google/desconectar') return await apiGoogle.desconectar(env, usuario);
       if (url.pathname === '/api/microsoft/estado') return await apiMicrosoft.estado(env, usuario);
       if (url.pathname === '/api/microsoft/desconectar') return await apiMicrosoft.desconectar(env, usuario);
+      if (url.pathname === '/api/microsoft/eventos') {
+        if (request.method !== 'GET') return json({ error: 'metodo no permitido' }, 405);
+        const r = await microsoft.eventosDelCentro(env, usuario.espacio);
+        return r.error ? json({ error: r.error }, r.status) : json({ eventos: r.eventos }, 200);
+      }
       if (url.pathname.startsWith('/api/notion/')) return await apiNotion(url, env, usuario);
       // Enlace del calendario (worker/feed.js). Se devuelve la ruta, no la URL
       // entera: el origen lo pone la app, igual que antes.
