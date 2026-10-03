@@ -228,7 +228,7 @@
    un <div> no es HTML válido. Por eso hay que devolverles el display de
    bloque a mano — si no, el título y su detalle salen pegados en la misma
    línea y toda la app parece un párrafo corrido. */
-.fila .izq, .riesgo .cuerpo, .recomendacion .q, .apunte .cuerpo { display: block; }
+.fila .izq, .riesgo .cuerpo, .recomendacion .q { display: block; }
 .t1, .n1, .n2, .prev { display: block; }
 .fila .izq { flex: 1 1 auto; min-width: 0; }
 .fila .der { flex: 0 0 auto; text-align: right; }
@@ -396,7 +396,7 @@
    que ya tienen su propio gesto (.marca-check rebota con overshoot,
    .paleta ya marca con el anillo) y los controles de texto. */
 :where(.boton, .chip, .nav-item, .btn-icono, .segmentos button, .inf-item,
-  .apunte, .captura button, .ia-sug, button.fila, .tema-fila[data-accion],
+  .ap-carpeta, .captura button, .ia-sug, button.fila, .tema-fila[data-accion],
   .dia-mes, .casilla):active {
   transform: scale(.97);
   transition: transform var(--t-toque);
@@ -817,24 +817,47 @@
 /* ===========================================================================
    12. APUNTES
    =========================================================================== */
-.apunte {
-  display: flex; flex-direction: column; text-align: left;
-  border: 1px solid var(--borde); border-radius: var(--r);
-  background: var(--sup); overflow: hidden;
-  transition: border-color var(--t1);
+/* Portada: una carpeta por asignatura, como en el Finder. */
+.ap-carpetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: var(--e2); }
+.ap-carpeta {
+  display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 9px; row-gap: 2px;
+  padding: 12px var(--e4); text-align: left;
+  border: 1px solid var(--borde); border-radius: var(--r); background: var(--sup);
+  transition: border-color var(--t1), background var(--t1);
 }
-.apunte:hover { border-color: var(--borde2); }
-.apunte .medio { aspect-ratio: 4/3; background: var(--sup3); display: grid; place-items: center; color: var(--apagado); }
-.apunte .medio img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.apunte .medio svg { width: 26px; height: 26px; }
-.apunte .cuerpo { padding: var(--e3); }
-.apunte .t1 { font-size: 13.5px; font-weight: 500; margin-bottom: 3px; }
-.apunte .prev {
-  font-size: 12px; color: var(--texto2); line-height: 1.45;
-  max-height: 52px; overflow: hidden; margin-bottom: 7px;
+.ap-carpeta:hover { border-color: var(--borde2); background: var(--sup2); }
+.ap-carpeta .punto-color { width: 9px; height: 9px; grid-row: 1 / 3; }
+.ap-carpeta .n { font-size: 14px; font-weight: 500; color: var(--texto); line-height: 1.3; overflow-wrap: break-word; }
+.ap-carpeta .c { font-size: 12px; color: var(--apagado); }
+
+.seccion-cab.ap-cab { align-items: center; }
+.ap-volver { display: grid; place-items: center; width: 30px; height: 30px; margin-left: -6px; border-radius: var(--r2); color: var(--texto2); }
+.ap-volver:hover { background: var(--sup3); color: var(--texto); }
+.ap-volver svg { width: 18px; height: 18px; }
+.seccion-cab .ap-titulo { display: flex; align-items: center; gap: 8px; font-size: 15px; color: var(--texto); text-transform: none; letter-spacing: 0; }
+.ap-titulo .apag { font-weight: 500; font-size: 13px; }
+.seccion-cab h2 .punto-color { margin-right: 4px; vertical-align: middle; }
+.ap-grupo { margin-top: var(--e5); }
+
+/* Fila de apunte: icono (o miniatura) + título en una línea + detalle. */
+.ap-fila { gap: var(--e3); }
+.ap-ico {
+  width: 38px; height: 38px; flex: 0 0 auto; border-radius: var(--r2); overflow: hidden;
+  display: grid; place-items: center; background: var(--sup3); color: var(--apagado);
 }
-.apunte .t2 { font-size: 11.5px; color: var(--apagado); display: flex; align-items: center; gap: 6px; }
-.apunte .fav { position: absolute; top: 8px; right: 8px; }
+.ap-ico svg { width: 18px; height: 18px; }
+.ap-ico.pdf { background: var(--mal-suave); color: var(--mal); }
+.ap-ico.texto { background: var(--acento-suave); color: var(--acento); }
+.ap-ico img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ap-fila .t2 { flex-wrap: nowrap; overflow: hidden; }
+.ap-fila .t2 > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 1 auto; min-width: 0; }
+.ap-fila .t2 > span + span::before { content: '·'; margin-right: 6px; color: var(--apagado); }
+.ap-fila .t2 .ap-tema { color: var(--texto2); }
+.ap-fila .t2 .ap-fecha { flex: 0 0 auto; color: var(--apagado); }
+/* La vista previa solo ocupa lo que sobra: antes que ella se ven el tema y la fecha. */
+.ap-fila .t2 .ap-prev { flex: 1 1 0; color: var(--apagado); }
+.ap-fila .t1 { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.35; }
+.ap-fav { color: var(--ojo); }
 .img-completa { width: 100%; display: block; border-radius: var(--r2); }
 
 /* Apunte de texto ya pintado: encabezados, puntos y casillas. Es lo que de
