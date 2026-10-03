@@ -1,7 +1,7 @@
 # Meta · organizador académico
 
 > Organizador académico: horario, exámenes, tareas, apuntes y notas.
-> Versión desplegada: **2.0.28** · `https://meta.beltranfersan.workers.dev`
+> Versión desplegada: **2.0.29** · `https://meta.beltranfersan.workers.dev`
 
 ## Qué es
 
