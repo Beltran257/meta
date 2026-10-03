@@ -10,6 +10,7 @@ export const APP = { nombre: 'Meta', version: '2.0.28' };
 export const CLAVES = {
   prefs:        { k: 'meta.prefs.v1',        desc: 'Preferencias de ESTE aparato (vista abierta, tema, avisos vistos)' },
   sync:         { k: 'meta.sync.v1',         desc: 'Estado de sincronización: de quién son estos datos y fecha de cada sección' },
+  cronometro:   { k: 'meta.cronometro.v1',   desc: 'Sesión de estudio en marcha en ESTE aparato: sobrevive a cerrar la app' },
 
   perfil:       { k: 'meta.perfil.v2',       desc: 'Perfil académico: curso, nivel, disponibilidad para estudiar' },
   asignaturas:  { k: 'meta.asignaturas.v1',  desc: 'Asignaturas del curso (nombre, color, profesor, aula)' },
@@ -29,6 +30,8 @@ export const LISTA_CLAVES = Object.values(CLAVES).map(c => c.k);
 /* Lo que viaja entre dispositivos. Fuera a propósito:
    · prefs -> es de ESTE aparato (vista abierta, tema, avisos ya vistos)
    · sync  -> es el propio mecanismo; sincronizarlo se mordería la cola
+   · cronometro -> la sesión en marcha es de quien la tiene delante; la que
+     viaja es la sesión ya guardada, dentro de 'sesiones'
    Los apuntes viajan como metadatos (título, texto, asignatura) por el buzón
    de siempre. El contenido de fotos y PDF es aparte (ver worker/archivos.js y
    app/js/core/archivos.js): copia rápida en IndexedDB de cada aparato, y

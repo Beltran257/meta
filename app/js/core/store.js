@@ -108,6 +108,10 @@ export function limpiarDatos() {
     memoria.delete(clave);
     try { localStorage.removeItem(clave); } catch {}
   }
+  // El cronómetro no viaja, pero apunta a asignaturas y temas de la cuenta
+  // anterior: guardarlo después lo colgaría de una asignatura que no existe.
+  memoria.delete(CLAVES.cronometro.k);
+  try { localStorage.removeItem(CLAVES.cronometro.k); } catch {}
   guardarSync({ ts: {}, ultima: null });
 }
 

@@ -144,7 +144,9 @@ function mostrarApp() {
   $app.classList.remove('oculto');
   pintarUsuario();
   pintarGlobos();
-  abrirVista(leer('prefs', {}).vista || 'hoy');
+  // Con una sesión de estudio en marcha se vuelve a ella: es lo que se estaba
+  // haciendo al cerrar la app, y el cronómetro ha seguido contando.
+  abrirVista(leer('cronometro', null) ? 'estudiar' : (leer('prefs', {}).vista || 'hoy'));
   avisoResumenDelDia();
 }
 

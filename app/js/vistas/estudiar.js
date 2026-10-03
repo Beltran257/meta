@@ -25,12 +25,33 @@ const TIPOS = [
 ];
 
 let raiz = null;
-let sesion = null;      // {asignaturaId, temaId, tipo, objetivo, inicio, transcurrido, corriendo}
+let sesion = null;      // {asignaturaId, temaId, tipo, objetivo, transcurrido, desde, corriendo}
 let reloj = null;
 
 const claseDe = p => (p >= 75 ? 'bien' : p >= 45 ? 'ojo' : 'mal');
 
-/* ============================== CRONÓMETRO ================================= */
+/* ============================== CRONÓMETRO =================================
+   La sesión en marcha se guarda en el aparato (clave 'cronometro') en cada
+   cambio, y el tiempo se cuenta como "ahora menos cuándo arrancó", nunca
+   sumando ticks. Así sobrevive a que iPadOS congele o cierre la app: al
+   volver a abrirla se recupera y el reloj marca lo que de verdad ha pasado.
+   Antes vivía solo en memoria y cerrar la app la tiraba entera. */
+
+function persistir() {
+  guardar('cronometro', sesion);
+  marcarEnMarcha();
+}
+
+/** Punto en "Estudiar" de la barra lateral: se ve desde cualquier pantalla. */
+function marcarEnMarcha() {
+  document.querySelector('[data-globo="estudiar"]')?.classList.toggle('oculto', !sesion);
+}
+
+/** La guardada, si tiene forma de sesión; si no, ninguna. */
+function recuperar() {
+  const s = leer('cronometro', null);
+  return s && typeof s.desde === 'number' && typeof s.transcurrido === 'number' ? s : null;
+}
 
 function segundosSesion() {
   if (!sesion) return 0;
@@ -81,6 +102,7 @@ function bloqueSesion() {
 }
 
 accion('sesion-pausa', () => {
+  if (!sesion) return;
   if (sesion.corriendo) {
     sesion.transcurrido = segundosSesion();
     sesion.corriendo = false;
@@ -90,6 +112,7 @@ accion('sesion-pausa', () => {
     sesion.corriendo = true;
     arrancarReloj();
   }
+  persistir();
   render();
 });
 
@@ -103,23 +126,31 @@ function empezar({ asignaturaId, temaId, tipo = 'teoria', minutos = null }) {
     desde: Date.now(),
     corriendo: true,
   };
+  persistir();
   arrancarReloj();
   render();
 }
 
 accion('sesion-terminar', () => {
+  if (!sesion) return;
   const segundos = segundosSesion();
   const minutos = Math.max(1, Math.round(segundos / 60));
   clearInterval(reloj);
+  // Se congela con el tiempo contado: si la hoja se cierra sin guardar (o se
+  // cierra la app con ella abierta), la sesión queda en pausa con sus minutos.
+  sesion.transcurrido = segundos;
   sesion.corriendo = false;
+  persistir();
+  render();
 
   const t = sesion.temaId ? temaDe(sesion.temaId) : null;
   hoja({
     titulo: 'Cerrar la sesión',
     cuerpo: `
-      <div class="factor">
-        <span class="n">Tiempo</span>
-        <span class="v">${escapa(duracion(minutos))}</span>
+      <div class="campo">
+        <label for="ses-min">Minutos</label>
+        <input id="ses-min" type="number" inputmode="numeric" min="1" max="600" value="${minutos}">
+        ${minutos > 240 ? '<div class="pista">Son muchas horas seguidas: si el cronómetro se quedó en marcha sin querer, corrige los minutos aquí.</div>' : ''}
       </div>
       <div class="campo" data-mt-grande>
         <label>¿Cómo ha ido?</label>
@@ -135,7 +166,7 @@ accion('sesion-terminar', () => {
       </div>`,
     pie: `
       <button class="boton sutil izquierda" data-accion="sesion-tirar">Descartar</button>
-      <button class="boton" data-accion="sesion-guardar" data-min="${minutos}">Guardar sesión</button>`,
+      <button class="boton" data-accion="sesion-guardar">Guardar sesión</button>`,
     alAbrir(v) {
       v.querySelectorAll('[data-res]').forEach(b => b.addEventListener('click', () => {
         v.querySelectorAll('[data-res]').forEach(x => x.setAttribute('aria-pressed', String(x === b)));
@@ -148,7 +179,9 @@ accion('sesion-guardar', (d, el) => {
   const v = el.closest('.hoja');
   const resultado = v.querySelector('[data-res][aria-pressed="true"]')?.dataset.res || 'regular';
   const notas = v.querySelector('#ses-notas').value.trim();
-  const minutos = Number(d.min);
+  const minutos = Math.round(Number(v.querySelector('#ses-min').value));
+  if (!sesion) return cerrarHoja();
+  if (!(minutos >= 1 && minutos <= 600)) return aviso('Pon entre 1 y 600 minutos', 'mal');
 
   guardar('sesiones', [...motor.listaSesiones(), {
     id: nuevoId('s'),
@@ -168,9 +201,10 @@ accion('sesion-guardar', (d, el) => {
   }
 
   emitir('local-cambio');
-  emitir('datos-cambio', ['sesiones']);
   sesion = null;
+  persistir();
   clearInterval(reloj);
+  emitir('datos-cambio', ['sesiones']);
   cerrarHoja();
   render();
   aviso(`${duracion(minutos)} registrados`);
@@ -179,6 +213,7 @@ accion('sesion-guardar', (d, el) => {
 accion('sesion-tirar', async () => {
   if (!await confirmar('Se descarta esta sesión y no queda registrada.', 'Descartar')) return;
   sesion = null;
+  persistir();
   clearInterval(reloj);
   cerrarHoja();
   render();
@@ -702,10 +737,19 @@ function bloqueUltimas() {
 export default {
   montar(el) {
     raiz = el;
-    render();
     on('datos-cambio', render);
+    // Al volver de segundo plano el intervalo pudo estar dormido: se repinta
+    // ya con la hora real en vez de esperar al siguiente tic.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') pintarReloj();
+    });
   },
   activar(extra) {
+    // Lo guardado manda: es lo que hay tras reabrir la app, y tras cambiar de
+    // cuenta (store.limpiarDatos lo borra) no queda la sesión de la anterior.
+    sesion = recuperar();
+    if (!sesion) clearInterval(reloj);
+    marcarEnMarcha();
     if (extra?.arrancar && !sesion) {
       empezar({
         asignaturaId: extra.asignaturaId,
