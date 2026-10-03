@@ -39,6 +39,25 @@ echo '✅ feed de calendario correcto'
 # eso daría respuestas mezcladas sin que se note desde ningún sitio.
 node tools/prueba-dossier.mjs > /dev/null || { echo '❌ el dossier de NotebookLM falla'; exit 1; }
 echo '✅ dossier de NotebookLM correcto'
+# El único sitio donde META decide algo: estado, prioridades y planes. Un
+# error aquí no se ve, da números falsos y se cree.
+node tools/prueba-motor.mjs > /dev/null || { echo '❌ el motor (prioridades y planes) falla'; exit 1; }
+echo '✅ motor correcto'
+# Cambiar el enlace del calendario tiene que cortar el viejo de verdad.
+node tools/prueba-feed.mjs > /dev/null || { echo '❌ el enlace del calendario falla'; exit 1; }
+echo '✅ enlace del calendario correcto'
+# Entrar con Google: sin la cookie de state se tiene que seguir entrando.
+node tools/prueba-vinculo.mjs > /dev/null || { echo '❌ entrar con Google falla'; exit 1; }
+echo '✅ entrar con Google correcto'
+# Calendario del instituto (P5): solo exámenes y entregas, sin bucles con Outlook.
+node tools/prueba-calendario-centro.mjs > /dev/null || { echo '❌ el calendario del instituto falla'; exit 1; }
+echo '✅ calendario del instituto correcto'
+# Las fotos de apuntes se reducen y nunca se pierden.
+node tools/prueba-foto.mjs > /dev/null || { echo '❌ la reducción de fotos falla'; exit 1; }
+echo '✅ reducción de fotos correcta'
+# El enlace de carpeta pide a iCloud los archivos que solo están en la nube.
+node tools/prueba-enlace.mjs > /dev/null || { echo '❌ el enlace de carpeta falla'; exit 1; }
+echo '✅ enlace de carpeta correcto'
 npx wrangler deploy 2>&1 | tail -3
 
 URL="https://meta.beltranfersan.workers.dev"
