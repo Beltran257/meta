@@ -340,8 +340,9 @@ function fabricaProveedor({ prov, elId, api, boton, cuenta }) {
       el.innerHTML = estado.conectado
         ? `<p class="parrafo chico">Conectado como <b>${escapa(estado.email || cuenta)}</b>.</p>
            ${estado.tareas === false ? `
-             <p class="parrafo chico">Falta un permiso: leer tus Google Tasks, para que el estudio
-             que marcas como hecho se apunte solo. Vuelve a conectar y se pedirá.</p>
+             <p class="parrafo chico">Faltan permisos de solo lectura (tus Google Tasks y la lista de
+             tus calendarios) para que el estudio que marcas como hecho y tus particulares se
+             apunten solos. Vuelve a conectar y se pedirán.</p>
              <a class="boton ancho" href="/api/${api}/conectar">Volver a conectar Google</a>` : ''}
            <button class="boton fantasma ancho" data-accion="${prov}-desconectar">Desconectar</button>`
         : `<p class="parrafo chico">Conecta ${escapa(cuenta)} y tus exámenes y entregas se meten

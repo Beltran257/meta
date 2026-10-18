@@ -53,11 +53,16 @@ const contiene = (t, frase) => (' ' + t + ' ').includes(' ' + frase + ' ');
 
 /** ¿De qué asignatura es este título? null si no se puede saber con
     seguridad (empate o ninguna pista). Las particulares pierden los empates
-    frente a las del curso: "ejercicios matemáticas" es la del instituto. */
+    frente a las del curso: "ejercicios matemáticas" es la del instituto.
+    Una clase particular cuenta para la asignatura DEL CURSO que nombra
+    ("Particulares matemáticas" son horas de Matemáticas): así lo quiere él,
+    aunque tenga una asignatura de tipo particular para pintarla en el horario. */
 export function asignaturaDeTitulo(titulo, asignaturas) {
   const t = norma(titulo);
   if (!t) return null;
-  const lista = (asignaturas || []).filter(a => a?.id && a.nombre && a.tipo !== 'bloque');
+  const particular = esParticular(titulo);
+  const lista = (asignaturas || []).filter(a => a?.id && a.nombre && a.tipo !== 'bloque' &&
+    !(particular && a.tipo === 'particular'));
   const tokens = new Map(lista.map(a => [a.id, norma(a.nombre).split(' ').filter(p => p && !VACIAS.has(p))]));
   const veces = new Map();
   for (const ts of tokens.values()) for (const p of new Set(ts)) veces.set(p, (veces.get(p) || 0) + 1);
@@ -81,13 +86,15 @@ export function asignaturaDeTitulo(titulo, asignaturas) {
 }
 
 export const esLogistica = titulo => RE_LOGISTICA.test(norma(titulo));
+export const esParticular = titulo => /\bparticular(es)?\b/.test(norma(titulo));
 
 export function tipoDeTitulo(titulo) {
   const t = norma(titulo);
   if (/\brepas/.test(t)) return 'repaso';
   if (/\b(ejercicios?|problemas|actividades|pag|pagina)\b/.test(t)) return 'ejercicios';
+  if (/\bparticular(es)?\b/.test(t)) return 'ejercicios';   // las particulares son de hacer ejercicios
   if (/\b(simulacro|examen)\b/.test(t)) return 'simulacro';
-  if (/\b(clase|particulares?)\b/.test(t)) return 'clase';
+  if (/\bclase\b/.test(t)) return 'clase';
   return 'teoria';
 }
 
@@ -118,7 +125,9 @@ export function sesionesDeBloques(bloques, asignaturas, ajustes = {}, ahora = Da
     else if (elegida && existe.has(elegida)) { asignaturaId = elegida; clase = 'estudio'; }
     else if (esLogistica(b.titulo)) clase = 'fuera';
     else {
-      asignaturaId = asignaturaDeTitulo(b.titulo, asignaturas);
+      // Primero el título; si no la dice, la lista de Tasks donde está la
+      // tarea (quien tiene una lista por asignatura no tiene que contestar nada).
+      asignaturaId = asignaturaDeTitulo(b.titulo, asignaturas) || (b.lista ? asignaturaDeTitulo(b.lista, asignaturas) : null);
       clase = asignaturaId ? 'estudio' : 'dudoso';
     }
     const hecho = d.hecho ?? (b.estado === 'hecha');

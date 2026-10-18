@@ -22,6 +22,10 @@ const SCOPE = [
   // tasks.readonly -> saber qué bloques de estudio del calendario marcó como
   //                   hechos (ver bloquesDeEstudio). Solo lectura.
   'https://www.googleapis.com/auth/tasks.readonly',
+  // calendar.calendarlist.readonly -> encontrar sus otros calendarios (el
+  //                   del horario, donde están las particulares). Solo la
+  //                   lista: los eventos ya los cubre calendar.events.
+  'https://www.googleapis.com/auth/calendar.calendarlist.readonly',
   'https://www.googleapis.com/auth/userinfo.email',
 ].join(' ');
 
@@ -299,7 +303,7 @@ export async function estadoConexion(env, codigo) {
     conectado: !!g?.refresh_token && !g?.roto,
     // Sin esto el estudio no se puede leer del calendario: conexiones de
     // antes de octubre de 2026 (ver tieneTareas).
-    tareas: String(g?.scope || '').includes('tasks.readonly'),
+    tareas: String(g?.scope || '').includes('tasks.readonly') && String(g?.scope || '').includes('calendar.calendarlist.readonly'),
     email: g?.email || null,
     ultima: g?.ultima || null,
     roto: g?.roto || null,
@@ -334,7 +338,8 @@ export async function tieneDrive(env, codigo) {
     2026 no: hay que volver a conectar, igual que con Drive. */
 export async function tieneTareas(env, codigo) {
   const g = await env.META_DATOS.get(`google:${codigo}`, 'json');
-  return !!g?.refresh_token && String(g.scope || '').includes('tasks.readonly');
+  const scope = String(g?.scope || '');
+  return !!g?.refresh_token && scope.includes('tasks.readonly') && scope.includes('calendar.calendarlist.readonly');
 }
 
 /* --- ESTUDIO DESDE EL CALENDARIO -----------------------------------------
@@ -375,9 +380,29 @@ export function bloquesDeEstudio(eventos, tareas, ahora = Date.now()) {
       titulo: String(e.summary || '').trim().slice(0, 140),
       inicio, fin,
       estado: !t ? 'sin-tarea' : t.status === 'completed' ? 'hecha' : 'pendiente',
+      // La lista de Tasks donde está (si las tiene por asignatura, es la
+      // pista más clara cuando el título no la dice).
+      ...(t?.lista ? { lista: String(t.lista).slice(0, 80) } : {}),
     });
   }
   return salida.sort((a, b) => a.inicio.localeCompare(b.inicio));
+}
+
+/** Función pura: las clases particulares de sus OTROS calendarios (el del
+    horario). No tienen tarea que marcar: una clase que ya pasó se da por
+    hecha — si un día no la hay, se borra esa del calendario y deja de
+    contar. Solo eventos con hora y con "particular" en el título: las
+    clases del instituto no son estudio. */
+const RE_PARTICULAR = /\bparticular(es)?\b/;
+export function clasesParticulares(eventos, ahora = Date.now()) {
+  const salida = [];
+  for (const e of eventos || []) {
+    if (e?.status === 'cancelled' || !RE_PARTICULAR.test(normaTitulo(e?.summary))) continue;
+    const inicio = e.start?.dateTime, fin = e.end?.dateTime;
+    if (!inicio || !fin || !(Date.parse(fin) > Date.parse(inicio)) || Date.parse(fin) > ahora) continue;
+    salida.push({ id: 'p-' + e.id, titulo: String(e.summary).trim().slice(0, 140), inicio, fin, estado: 'hecha', fuente: 'particular' });
+  }
+  return salida;
 }
 
 async function todasLasPaginas(url, accessToken, clave, tope = 20) {
@@ -417,9 +442,25 @@ export async function estudioDelCalendario(env, codigo, desde, ahora = new Date(
         showCompleted: 'true', showHidden: 'true', updatedMin: timeMin, maxResults: '100',
         fields: 'items(id,title,status,due,webViewLink),nextPageToken',
       });
-      tareas.push(...await todasLasPaginas(`${TASKS_BASE}/lists/${encodeURIComponent(l.id)}/tasks?${qT}`, accessToken, 'items'));
+      const deLista = await todasLasPaginas(`${TASKS_BASE}/lists/${encodeURIComponent(l.id)}/tasks?${qT}`, accessToken, 'items');
+      tareas.push(...deLista.map(t => ({ ...t, lista: l.title })));
     }
-    return { bloques: bloquesDeEstudio(eventos, tareas, ahora.getTime()) };
+    // Sus otros calendarios propios (no los festivos ni los compartidos):
+    // solo se quedan las particulares. Sin `q` a propósito: la búsqueda de
+    // Google no garantiza que "particular" encuentre "Particulares".
+    const calendarios = await todasLasPaginas(`${CAL_BASE}/users/me/calendarList?minAccessRole=owner&maxResults=50`, accessToken, 'items', 2);
+    const otros = [];
+    for (const c of calendarios.filter(c => !c.primary)) {
+      const qP = new URLSearchParams({
+        timeMin, timeMax: ahora.toISOString(), singleEvents: 'true',
+        maxResults: '2500', fields: 'items(id,summary,start,end,status),nextPageToken',
+      });
+      otros.push(...await todasLasPaginas(`${CAL_BASE}/calendars/${encodeURIComponent(c.id)}/events?${qP}`, accessToken, 'items'));
+    }
+    return {
+      bloques: [...bloquesDeEstudio(eventos, tareas, ahora.getTime()), ...clasesParticulares(otros, ahora.getTime())]
+        .sort((a, b) => a.inicio.localeCompare(b.inicio)),
+    };
   } catch (e) {
     if (e.status === 401 || e.status === 403) {
       return { error: 'Google no deja leer el calendario o las tareas: vuelve a conectar Google.', motivo: 'sin-permiso-tareas', status: 409 };

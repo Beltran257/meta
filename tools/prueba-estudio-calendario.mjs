@@ -22,7 +22,7 @@ globalThis.localStorage = {
 
 const { asignaturaDeTitulo, esLogistica, tipoDeTitulo, sesionesDeBloques, inicioCurso } =
   await import('../app/js/core/calendario.js');
-const { bloquesDeEstudio } = await import('../worker/google.js');
+const { bloquesDeEstudio, clasesParticulares } = await import('../worker/google.js');
 
 let fallos = 0;
 const mal = m => { console.log('❌ ' + m); fallos++; };
@@ -51,11 +51,13 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
     .map(([t, id]) => `"${t}" → ${nombre(asignaturaDeTitulo(t, ASIG))} (tocaba ${nombre(id)})`);
   errores.length ? errores.forEach(mal) : bien(`${casos.length} títulos reales caen en su asignatura, y lo que no dice ninguna no se adivina`);
 
-  // Con una asignatura particular del mismo nombre, gana la del curso.
+  // Las particulares cuentan para la asignatura del curso, aunque exista una
+  // asignatura de tipo particular con ese nombre (la del horario).
   const conParticular = [...ASIG, { id: 'pmat', nombre: 'Particulares matemáticas', tipo: 'particular' }];
   asignaturaDeTitulo('Ejercicios matemáticas', conParticular) === 'mat'
-    && asignaturaDeTitulo('Particulares matemáticas', conParticular) === 'pmat'
-    ? bien('la particular solo gana cuando se la nombra') : mal('empate con la particular mal resuelto');
+    && asignaturaDeTitulo('Particulares matemáticas', conParticular) === 'mat'
+    && asignaturaDeTitulo('Particulares matemáticas', ASIG) === 'mat'
+    ? bien('"Particulares matemáticas" son horas de Matemáticas') : mal('las particulares no caen en Matemáticas');
   asignaturaDeTitulo('Recreo', [...ASIG, { id: 'r', nombre: 'Recreo', tipo: 'bloque' }]) === null
     ? bien('los bloques del horario nunca reciben estudio') : mal('un bloque del horario ha recibido estudio');
 }
@@ -66,7 +68,7 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
   const no = ['Estudiar arte', 'Hacer esquema arte', 'Repasar lengua'];
   log.every(esLogistica) && !no.some(esLogistica) ? bien('imprimir, grapar, escanear y subir no son estudio')
     : mal('la logística se confunde con estudio');
-  const tipos = [['Repasar arte', 'repaso'], ['Ejercicios matemáticas', 'ejercicios'], ['Página 51 (1) lengua', 'ejercicios'], ['Estudiar arte', 'teoria']];
+  const tipos = [['Repasar arte', 'repaso'], ['Ejercicios matemáticas', 'ejercicios'], ['Página 51 (1) lengua', 'ejercicios'], ['Estudiar arte', 'teoria'], ['Particulares matemáticas', 'ejercicios']];
   tipos.every(([t, ti]) => tipoDeTitulo(t) === ti) ? bien('el tipo de sesión sale del título') : mal('tipo de sesión mal deducido');
 }
 
@@ -87,7 +89,7 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
     ev('e7', 'Portfolio inglés', '2026-10-15T17:45:00+02:00', '2026-10-15T18:00:00+02:00', 'OTRO'),
   ];
   const tareas = [
-    { id: 'api1', title: 'Estudiar arte', status: 'completed', webViewLink: 'https://tasks.google.com/task/T1?sa=6' },
+    { id: 'api1', title: 'Estudiar arte', status: 'completed', webViewLink: 'https://tasks.google.com/task/T1?sa=6', lista: 'Arte' },
     { id: 'T2', title: 'Repasar historia', status: 'needsAction' },
     { id: 'api7', title: 'Portfolio inglés', status: 'completed', due: '2026-10-15T00:00:00.000Z' },
   ];
@@ -96,6 +98,17 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
   JSON.stringify(ver) === JSON.stringify({ e7: 'hecha', e2: 'pendiente', e1: 'hecha' })
     ? bien('solo bloques de tareas ya terminados; la tarea se encuentra por enlace o por título y día')
     : mal(`bloques del worker: ${JSON.stringify(ver)}`);
+  b.find(x => x.id === 'e1')?.lista === 'Arte' ? bien('cada bloque lleva la lista de Tasks de su tarea') : mal('falta la lista de Tasks');
+
+  const p = clasesParticulares([
+    ev('c1', 'Particulares matemáticas', '2026-10-14T16:30:00+02:00', '2026-10-14T17:45:00+02:00', null),
+    ev('c2', 'Historia del arte', '2026-10-14T08:00:00+02:00', '2026-10-14T09:00:00+02:00', null),
+    ev('c3', 'Particulares matemáticas', '2026-10-21T16:30:00+02:00', '2026-10-21T17:45:00+02:00', null),
+    ev('c4', 'Particular de inglés', '2026-10-13T16:30:00+02:00', '2026-10-13T17:30:00+02:00', null, { status: 'cancelled' }),
+  ], Date.parse('2026-10-18T12:00:00+02:00'));
+  p.length === 1 && p[0].id === 'p-c1' && p[0].estado === 'hecha'
+    ? bien('del calendario del horario solo entran las particulares ya pasadas, como hechas (las clases del instituto no)')
+    : mal(`particulares: ${JSON.stringify(p.map(x => x.id))}`);
 }
 
 /* ------------------------ de bloques a sesiones --------------------------- */
@@ -138,6 +151,22 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
 
   sesionesDeBloques(bloques, ASIG, { decisiones: { f: { asignaturaId: 'borrada' } } }, ahora).dudosos.some(x => x.id === 'f')
     ? bien('una decisión que apunta a una asignatura borrada vuelve a preguntarse') : mal('asignatura borrada aceptada');
+}
+
+/* -------------------- particulares y lista de Tasks ----------------------- */
+{
+  const ahora = Date.parse('2026-10-18T12:00:00+02:00');
+  const r = sesionesDeBloques([
+    { id: 'p-c1', titulo: 'Particulares matemáticas', inicio: '2026-10-14T16:30:00+02:00', fin: '2026-10-14T17:45:00+02:00', estado: 'hecha', fuente: 'particular' },
+    { id: 'x', titulo: 'Tema 4', inicio: '2026-10-15T17:00:00+02:00', fin: '2026-10-15T18:00:00+02:00', estado: 'hecha', lista: 'Historia del arte' },
+    { id: 'y', titulo: 'Tema 4', inicio: '2026-10-16T17:00:00+02:00', fin: '2026-10-16T18:00:00+02:00', estado: 'hecha', lista: 'Mis tareas' },
+  ], ASIG, {}, ahora);
+  const s = Object.fromEntries(r.sesiones.map(x => [x.id, `${x.asignaturaId}:${x.tipo}:${x.minutos}`]));
+  s['cal-p-c1'] === 'mat:ejercicios:75' ? bien('una particular de 1 h 15 suma 75 min de ejercicios de Matemáticas')
+    : mal(`particular: ${s['cal-p-c1']}`);
+  s['cal-x'] === 'art:teoria:60' && r.dudosos.map(x => x.id).join() === 'y'
+    ? bien('si el título no dice la asignatura, la lista de Tasks sí; si tampoco, se pregunta')
+    : mal(`lista de Tasks: ${JSON.stringify(s)} · dudosos ${r.dudosos.map(x => x.id)}`);
 }
 
 /* ------------------------------ inicio de curso --------------------------- */
