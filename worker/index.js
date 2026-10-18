@@ -15,6 +15,7 @@ import { leerBuzon, fusionar, codigoValido, normaliza, demasiadoGrande } from '.
 import { construirIcs } from './ics.js';
 import * as auth from './auth.js';
 import * as google from './google.js';
+import * as estudio from './estudio.js';
 import * as microsoft from './microsoft.js';
 import * as notion from './notion.js';
 import * as ia from './ia.js';
@@ -211,6 +212,7 @@ async function apiAuth(request, url, env, ctx) {
     // Los dossieres van primero: retirarlos necesita el token de Google, que
     // desconectar() revoca. Al revés se quedarían huérfanos en su Drive.
     try { await notebooklm.retirar(env, usuario.espacio); } catch { /* seguimos */ }
+    try { await estudio.borrar(env, usuario.espacio); } catch { /* seguimos */ }
     for (const mod of [google, microsoft, notion]) {
       try { await mod.desconectar(env, usuario.espacio); } catch { /* seguimos */ }
     }
@@ -664,7 +666,7 @@ const ESCRIBEN = [
   '/api/notion/conectar', '/api/notion/desconectar',
   '/api/archivos/subir', '/api/archivos/borrar',
   '/api/notebooklm/sincronizar',
-  '/api/ics/renovar',
+  '/api/ics/renovar', '/api/estudio/clave',
   // La pide Salud por service binding, pero también valdría la cookie: sin
   // esto, una web cualquiera podría hacer que le apareciera un evento en su
   // calendario. Salud manda la cabecera igual que manda X-Salud en la suya.
@@ -711,6 +713,19 @@ export default {
       if (url.pathname === '/api/oauth/microsoft/callback') return await apiMicrosoft.callback(url, env);
       if (url.pathname === '/api/google/conectar') return await apiGoogle.conectar(request, env);
       if (url.pathname === '/api/microsoft/conectar') return await apiMicrosoft.conectar(request, env);
+      // Lo manda su Apps Script cada hora, con su propia clave (no una sesión:
+      // esa clave solo sirve para esto). Ver worker/estudio.js.
+      if (url.pathname === '/api/estudio/recibir') {
+        if (request.method !== 'POST') return json({ error: 'metodo no permitido' }, 405);
+        const espacio = await estudio.espacioDeClave(request, env);
+        if (!espacio) return json({ error: 'clave del script no válida: genera otra en Meta → Perfil' }, 401);
+        const { datos, error } = await cuerpo(request);
+        if (error) return error;
+        const r = estudio.procesarEnvio(datos);
+        if (r.error) return json({ error: r.error }, 400);
+        await estudio.guardar(env, espacio, r.bloques);
+        return json({ ok: true, bloques: r.bloques.length, hechas: r.bloques.filter(b => b.estado === 'hecha').length }, 200);
+      }
 
       /* --- de aquí abajo, TODO exige sesión y trabaja sobre el espacio del
              usuario de la cookie. Es el punto único donde se comprueba. ---- */
@@ -776,16 +791,14 @@ export default {
       }
       if (url.pathname === '/api/google/estado') return await apiGoogle.estado(env, usuario);
       if (url.pathname === '/api/google/desconectar') return await apiGoogle.desconectar(env, usuario);
-      // Bloques de estudio del calendario con su casilla de Google Tasks. Solo
-      // lectura; la app decide qué cuenta (ver app/js/core/calendario.js).
-      if (url.pathname === '/api/google/estudio') {
+      // Bloques de estudio que mandó su script, y si lo tiene instalado.
+      if (url.pathname === '/api/estudio') {
         if (request.method !== 'GET') return json({ error: 'metodo no permitido' }, 405);
-        const desde = url.searchParams.get('desde') || '';
-        if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || Date.now() - Date.parse(desde) > 400 * 864e5) {
-          return json({ error: 'fecha de inicio no válida' }, 400);
-        }
-        const r = await google.estudioDelCalendario(env, usuario.espacio, desde);
-        return r.error ? json({ error: r.error, motivo: r.motivo }, r.status) : json({ bloques: r.bloques }, 200);
+        return json(await estudio.leer(env, usuario.espacio), 200);
+      }
+      if (url.pathname === '/api/estudio/clave') {
+        if (request.method !== 'POST') return json({ error: 'metodo no permitido' }, 405);
+        return json({ clave: await estudio.nuevaClave(env, usuario.espacio) }, 200);
       }
       if (url.pathname === '/api/microsoft/estado') return await apiMicrosoft.estado(env, usuario);
       if (url.pathname === '/api/microsoft/desconectar') return await apiMicrosoft.desconectar(env, usuario);

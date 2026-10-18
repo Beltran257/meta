@@ -956,3 +956,5 @@
   .tarjeta.cal .cal-dudoso .der select { max-width: none; width: 100%; }
 }
 .semana-fila .der { min-width: 84px; }
+.pasos { padding-left: 1.3em; display: flex; flex-direction: column; gap: var(--e3); font-size: 14px; line-height: 1.5; }
+.pasos .boton { margin-top: 6px; display: inline-flex; }

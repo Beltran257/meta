@@ -22,7 +22,8 @@ globalThis.localStorage = {
 
 const { asignaturaDeTitulo, esLogistica, tipoDeTitulo, sesionesDeBloques, inicioCurso } =
   await import('../app/js/core/calendario.js');
-const { bloquesDeEstudio, clasesParticulares } = await import('../worker/google.js');
+const { bloquesDeEstudio, clasesParticulares, procesarEnvio } = await import('../worker/estudio.js');
+const { codigoScript, MANIFIESTO } = await import('../app/js/core/script-estudio.js');
 
 let fallos = 0;
 const mal = m => { console.log('❌ ' + m); fallos++; };
@@ -167,6 +168,33 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
   s['cal-x'] === 'art:teoria:60' && r.dudosos.map(x => x.id).join() === 'y'
     ? bien('si el título no dice la asignatura, la lista de Tasks sí; si tampoco, se pregunta')
     : mal(`lista de Tasks: ${JSON.stringify(s)} · dudosos ${r.dudosos.map(x => x.id)}`);
+}
+
+/* -------------------------- lo que manda el script ------------------------- */
+{
+  const ahora = Date.parse('2026-10-18T12:00:00+02:00');
+  const r = procesarEnvio({
+    eventos: [{ id: 'e1', summary: 'Estudiar arte', description: 'tasks.google.com/task/T1', status: 'confirmed',
+      start: { dateTime: '2026-10-17T16:30:00+02:00' }, end: { dateTime: '2026-10-17T18:30:00+02:00' } }],
+    tareas: [{ id: 'x', title: 'Estudiar arte', status: 'completed', webViewLink: 'https://tasks.google.com/task/T1', lista: 'Mis tareas' }],
+    particulares: [{ id: 'c1', summary: 'Particulares matemáticas', status: 'confirmed',
+      start: { dateTime: '2026-10-14T16:30:00+02:00' }, end: { dateTime: '2026-10-14T17:45:00+02:00' } }],
+  }, ahora);
+  r.bloques?.map(b => `${b.id}:${b.estado}`).join() === 'p-c1:hecha,e1:hecha'
+    ? bien('lo que manda el script se convierte en bloques (tareas + particulares), por fecha')
+    : mal(`envío del script: ${JSON.stringify(r)}`);
+  procesarEnvio({ eventos: 'x' }).error && procesarEnvio(null).error
+    ? bien('un envío sin la forma esperada se rechaza') : mal('envío mal formado aceptado');
+
+  const codigo = codigoScript({ origen: 'https://meta.example', clave: 'a'.repeat(64), desde: '2026-09-01' });
+  let compila = true;
+  try { new Function(codigo); } catch { compila = false; }
+  const m = JSON.parse(MANIFIESTO);
+  compila && codigo.includes('"' + 'a'.repeat(64) + '"') && codigo.includes('/api/estudio/recibir')
+    && m.oauthScopes.every(x => /readonly|external_request|scriptapp/.test(x))
+    && m.dependencies.enabledAdvancedServices.length === 2
+    ? bien('el script generado es JavaScript válido, lleva su clave y solo pide permisos de lectura')
+    : mal('script generado incorrecto');
 }
 
 /* ------------------------------ inicio de curso --------------------------- */

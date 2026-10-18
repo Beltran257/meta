@@ -11,6 +11,8 @@ import { escapa, hoyLocal, desdeCuando, duracion, inicialesNombre } from '../cor
 import * as sesion from '../core/sesion.js';
 import * as sync from '../core/sync.js';
 import * as motor from '../core/motor.js';
+import { codigoScript, MANIFIESTO } from '../core/script-estudio.js';
+import { inicioCurso } from '../core/calendario.js';
 
 let raiz = null;
 
@@ -125,6 +127,13 @@ function render() {
 
     <div class="seccion">
       <div class="seccion-cab"><h2>Conexiones</h2></div>
+      <div class="tarjeta">
+        <h3>${icono('reloj', 'marca-conexion marca-conexion-linea')}Estudio desde tu calendario</h3>
+        <p class="parrafo chico">Un pequeño script en tu cuenta de Google lee cada hora tus tareas
+        con hora de Google Tasks (y si las marcaste como hechas) y tus particulares, y se lo manda
+        a Meta. Solo lee: no cambia nada de tu calendario ni de tus tareas.</p>
+        <div id="bloque-estudio">${cargandoChico()}</div>
+      </div>
       <div class="tarjeta"><h3>${marca('google')}Google Calendar</h3><div id="bloque-google">${cargandoChico()}</div></div>
       <div class="tarjeta"><h3>${marca('outlook')}Outlook del instituto</h3><div id="bloque-microsoft">${cargandoChico()}</div></div>
       <div class="tarjeta"><h3>${marca('notion')}Notion</h3><div id="bloque-notion">${cargandoChico()}</div></div>
@@ -180,7 +189,7 @@ function render() {
     });
   });
 
-  cargarGoogle(); cargarMicrosoft(); cargarNotion(); cargarNotebookLM(); cargarIcs();
+  cargarEstudio(); cargarGoogle(); cargarMicrosoft(); cargarNotion(); cargarNotebookLM(); cargarIcs();
 }
 
 const cargandoChico = () => '<p class="parrafo chico">Comprobando…</p>';
@@ -339,11 +348,6 @@ function fabricaProveedor({ prov, elId, api, boton, cuenta }) {
       const estado = await sesion.pedir(`/api/${api}/estado`);
       el.innerHTML = estado.conectado
         ? `<p class="parrafo chico">Conectado como <b>${escapa(estado.email || cuenta)}</b>.</p>
-           ${estado.tareas === false ? `
-             <p class="parrafo chico">Faltan permisos de solo lectura (tus Google Tasks y la lista de
-             tus calendarios) para que el estudio que marcas como hecho y tus particulares se
-             apunten solos. Vuelve a conectar y se pedirán.</p>
-             <a class="boton ancho" href="/api/${api}/conectar">Volver a conectar Google</a>` : ''}
            <button class="boton fantasma ancho" data-accion="${prov}-desconectar">Desconectar</button>`
         : `<p class="parrafo chico">Conecta ${escapa(cuenta)} y tus exámenes y entregas se meten
            y se actualizan solos ahí.</p>
@@ -491,6 +495,74 @@ accion('notion-desconectar', async (d, el) => {
   el.disabled = true;
   try { await sesion.pedir('/api/notion/desconectar', { metodo: 'POST' }); aviso('Desconectado'); }
   finally { el.disabled = false; cargarNotion(); }
+});
+
+/* ---------------------- estudio desde el calendario -------------------------
+   Ver worker/estudio.js: por qué es un Apps Script en su cuenta y no un
+   permiso más de la conexión de Google. */
+async function cargarEstudio() {
+  const el = document.querySelector('#bloque-estudio');
+  if (!el) return;
+  try {
+    const e = await sesion.pedir('/api/estudio');
+    el.innerHTML = e.instalado && e.ultima
+      ? `<p class="parrafo chico">Funcionando · último envío ${escapa(desdeCuando(e.ultima))} ·
+           ${e.bloques.length} bloques desde el inicio de curso.</p>
+         <button class="boton fantasma ancho" data-accion="estudio-script">Volver a instalar el script</button>`
+      : e.instalado
+        ? `<p class="parrafo chico">Clave generada, pero el script todavía no ha mandado nada. Termina los
+             pasos (sobre todo "Ejecutar" con la función <b>instalar</b>), o empieza otra vez.</p>
+           <button class="boton ancho" data-accion="estudio-script">Ver los pasos otra vez</button>`
+        : `<button class="boton ancho" data-accion="estudio-script">Instalar (3 minutos)</button>`;
+  } catch {
+    el.innerHTML = '<p class="parrafo chico">No se pudo comprobar ahora mismo.</p>';
+  }
+}
+
+let textosScript = {};
+accion('estudio-copiar', async d => {
+  try {
+    await navigator.clipboard.writeText(textosScript[d.que] || '');
+    aviso('Copiado');
+  } catch {
+    aviso('No se pudo copiar: selecciona el texto y cópialo a mano', 'mal');
+  }
+});
+
+accion('estudio-script', async (d, el) => {
+  if (!await confirmar('Se genera una clave nueva para el script. Si ya tenías uno instalado, deja de valer y hay que pegar el nuevo.', 'Continuar')) return;
+  el.disabled = true;
+  try {
+    const { clave } = await sesion.pedir('/api/estudio/clave', { metodo: 'POST' });
+    textosScript = { codigo: codigoScript({ origen: location.origin, clave, desde: inicioCurso() }), manifiesto: MANIFIESTO };
+    hoja({
+      titulo: 'Estudio desde tu calendario',
+      ancha: true,
+      cuerpo: `
+        <ol class="pasos">
+          <li>Abre <a href="https://script.google.com/home/projects/create" target="_blank" rel="noopener"><b>script.google.com → Nuevo proyecto</b></a>
+            con tu cuenta de Google. Ponle de nombre <b>Meta estudio</b> (arriba, donde pone "Proyecto sin título").</li>
+          <li>En la rueda de <b>Configuración del proyecto</b> (a la izquierda), marca
+            <b>"Mostrar el archivo de manifiesto appsscript.json en el editor"</b>.</li>
+          <li>Vuelve al <b>Editor</b> (el icono &lt;&gt;). Abre <b>appsscript.json</b>, borra lo que tiene y pega esto:
+            <button class="boton chico fantasma" data-accion="estudio-copiar" data-que="manifiesto">Copiar manifiesto</button></li>
+          <li>Abre <b>Código.gs</b>, borra lo que tiene y pega esto (lleva tu clave dentro, no la compartas):
+            <button class="boton chico fantasma" data-accion="estudio-copiar" data-que="codigo">Copiar código</button></li>
+          <li>Guarda (⌘S). Arriba, elige la función <b>instalar</b> y pulsa <b>Ejecutar</b>.</li>
+          <li>Google pedirá permiso: <b>Revisar permisos</b> → tu cuenta → <b>Configuración avanzada</b> →
+            <b>Ir a Meta estudio (no seguro)</b> → <b>Permitir</b>. Sale "no seguro" porque el script es tuyo
+            y no lo ha revisado Google; es solo lectura.</li>
+        </ol>
+        <p class="pista">Listo: a partir de ahí se ejecuta solo cada hora. En Estudiar verás tus horas en
+        cuanto termine la primera vez.</p>`,
+      pie: `<button class="boton" data-accion="cerrar-hoja">Hecho</button>`,
+    });
+  } catch (e) {
+    aviso(e.message || 'No se pudo generar la clave', 'mal');
+  } finally {
+    el.disabled = false;
+    cargarEstudio();
+  }
 });
 
 accion('enlace-carpeta-generar', async (d, el) => {

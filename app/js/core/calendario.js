@@ -2,8 +2,9 @@
    ESTUDIO DESDE EL CALENDARIO — la entrada principal de las horas de estudio.
 
    Él planifica en Google Tasks con hora ("Estudiar arte", 16:30–18:30) y
-   marca la tarea cuando la hace. META ya no le pide que apunte nada: lee esos
-   bloques (worker/google.js, estudioDelCalendario), decide de qué asignatura
+   marca la tarea cuando la hace. META ya no le pide que apunte nada: un Apps
+   Script en su cuenta de Google le manda esos bloques cada hora (ver
+   worker/estudio.js y core/script-estudio.js), META decide de qué asignatura
    es cada uno y los convierte en sesiones de estudio normales, con origen
    'calendario'. Así cuentan en todo lo demás (Hoy, análisis, preparación de
    exámenes) sin que el motor sepa de dónde vienen.
@@ -171,7 +172,7 @@ export function inicioCurso(hoy = new Date()) {
 /* ============================ con almacenamiento ========================== */
 
 const ajustes = () => ({ reglas: {}, decisiones: {}, ...leer('calendario', {}) });
-export const cache = () => ({ bloques: [], ultima: null, error: null, motivo: null, ...leer('calendarioBloques', {}) });
+export const cache = () => ({ bloques: [], ultima: null, enviado: null, error: null, motivo: null, ...leer('calendarioBloques', {}) });
 
 /** Lo que hay que enseñar ahora: preguntas pendientes y estado de la lectura. */
 export function estado() {
@@ -209,11 +210,17 @@ export function importar({ forzar = false } = {}) {
 
   enCurso = (async () => {
     try {
-      const r = await sesion.pedir(`/api/google/estudio?desde=${inicioCurso()}`, { silencioso: true });
-      guardar('calendarioBloques', { bloques: r.bloques || [], ultima: Date.now(), error: null, motivo: null });
-      aplicar();
+      const r = await sesion.pedir('/api/estudio', { silencioso: true });
+      if (!r.instalado || !r.ultima) {
+        guardar('calendarioBloques', { ...c, error: 'Falta instalar el enlace con tu calendario (Perfil → Estudio desde tu calendario).', motivo: 'sin-script' });
+      } else {
+        // `ultima` = cuándo leyó META; `enviado` = cuándo mandó el script lo
+        // último. Si el script lleva horas sin mandar, se dice (ver estudiar.js).
+        guardar('calendarioBloques', { bloques: r.bloques || [], ultima: Date.now(), enviado: r.ultima, error: null, motivo: null });
+        aplicar();
+      }
     } catch (e) {
-      guardar('calendarioBloques', { ...c, error: e.message || 'No se pudo leer el calendario', motivo: e.status === 409 ? 'conexion' : 'red' });
+      guardar('calendarioBloques', { ...c, error: e.message || 'No se pudo leer el calendario', motivo: 'red' });
     } finally {
       enCurso = null;
       emitir('calendario-cambio');

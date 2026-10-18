@@ -42,19 +42,7 @@
       para escribir en tu calendario los exámenes y entregas que apuntas en
       Meta, y para poner un aviso cuando tus propias cifras de sueño piden un
       descanso. Meta solo crea, actualiza o borra los eventos que ha creado
-      ella misma. Además <em>lee</em> (sin cambiarlos) los bloques de tus
-      tareas con hora y tus clases particulares, para apuntar solas tus horas
-      de estudio. Lo leído se queda en tu propio espacio de Meta.
-    </li>
-    <li>
-      <strong>Tus tareas de Google Tasks, solo lectura (<code>tasks.readonly</code>)</strong> —
-      para saber qué tareas de estudio has marcado como hechas y en qué lista
-      están. Meta nunca crea, cambia ni borra tareas.
-    </li>
-    <li>
-      <strong>La lista de tus calendarios, solo lectura (<code>calendar.calendarlist.readonly</code>)</strong> —
-      para encontrar el calendario de tu horario, donde están las clases
-      particulares. No da acceso a nada más.
+      ella misma; no lee ni toca el resto de tu calendario.
     </li>
     <li>
       <strong>Archivos que Meta crea en tu Google Drive (<code>drive.file</code>)</strong> —
@@ -64,6 +52,18 @@
     </li>
   </ul>
 
+  <h2>El estudio desde tu calendario (opcional)</h2>
+  <p>
+    Si lo instalas desde <em>Perfil</em>, un pequeño Apps Script que vive en
+    <strong>tu propia</strong> cuenta de Google lee, solo para leer, tus
+    tareas con hora de Google Tasks (y si las marcaste como hechas) y las
+    clases particulares de tus calendarios, y cada hora manda a Meta el
+    título, las horas y el estado de cada bloque. Esos permisos los concedes
+    a tu script, no a Meta, y los retiras borrando el script o desde
+    <a href="https://myaccount.google.com/permissions">tu cuenta de Google</a>.
+    Lo recibido se guarda en tu espacio de Meta y se borra con tu cuenta.
+  </p>
+
   <h2>Dónde vive el dato</h2>
   <p>
     Todo lo que Meta guarda —tu horario, tus tareas, tus apuntes, el testigo
@@ -71,8 +71,8 @@
     misma cuenta donde corre la aplicación. No hay ninguna base de datos de
     terceros, ningún proveedor de análisis, ningún anuncio, y el dato nunca
     se vende ni se comparte con nadie. La única excepción es Google, y solo
-    para lo descrito arriba: leer tus bloques de estudio y tus tareas, y
-    escribir en tu calendario o en tus propios archivos de Drive.
+    para lo descrito arriba: escribir en tu calendario o en tus propios
+    archivos de Drive.
   </p>
 
   <h2>Cuánto tiempo se guarda</h2>

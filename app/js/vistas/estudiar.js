@@ -660,7 +660,8 @@ function bloqueCalendario() {
   const desde = fechaCorta(calendario.inicioCurso());
 
   let cab;
-  if (e.motivo === 'conexion') {
+  const horasSinEnviar = e.enviado ? (Date.now() - e.enviado) / 36e5 : 0;
+  if (e.motivo === 'sin-script') {
     cab = `
       <div class="cal-estado mal">
         <p class="parrafo chico">${escapa(e.error)}</p>
@@ -676,7 +677,9 @@ function bloqueCalendario() {
     cab = `
       <div class="cal-estado">
         <p class="parrafo chico"><b>${escapa(duracion(Math.round(e.horas * 60)))}</b> de estudio marcado como hecho desde el ${escapa(desde)}
-          · leído ${escapa(desdeCuando(e.ultima))}${e.error ? ` · <span class="apag">${escapa(e.error)}</span>` : ''}</p>
+          · tu calendario se leyó ${escapa(desdeCuando(e.enviado || e.ultima))}${e.error ? ` · <span class="apag">${escapa(e.error)}</span>` : ''}</p>
+        ${horasSinEnviar > 3 ? `<p class="parrafo chico mal">El script de tu cuenta de Google lleva más de ${Math.floor(horasSinEnviar)} h sin mandar nada.
+          Ábrelo en script.google.com y mira "Ejecuciones", o vuelve a instalarlo desde Perfil.</p>` : ''}
         <button class="boton chico sutil" data-accion="cal-leer">Actualizar</button>
       </div>`;
   }
