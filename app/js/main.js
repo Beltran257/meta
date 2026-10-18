@@ -15,6 +15,7 @@ import { inicialesNombre, hoyLocal, diasHasta } from './core/fmt.js';
 import * as sesion from './core/sesion.js';
 import * as sync from './core/sync.js';
 import * as motor from './core/motor.js';
+import * as calendario from './core/calendario.js';
 
 import * as acceso from './vistas/acceso.js';
 import hoy from './vistas/hoy.js';
@@ -167,8 +168,16 @@ async function entrarEnLaApp() {
     return acceso.abrirOnboarding();
   }
   mostrarApp();
-  sync.sincronizar();
+  // El estudio entra solo desde el calendario: después de sincronizar, para
+  // que las reglas y decisiones de otros aparatos ya estén aquí.
+  sync.sincronizar().finally(() => calendario.importar());
 }
+
+/* Al volver a la app (iPad en segundo plano): si hace rato que no se lee el
+   calendario, se lee. importar() ya se encarga de no repetir si fue hace poco. */
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && sesion.dentro()) calendario.importar();
+});
 
 on('sesion-lista', entrarEnLaApp);
 

@@ -776,6 +776,17 @@ export default {
       }
       if (url.pathname === '/api/google/estado') return await apiGoogle.estado(env, usuario);
       if (url.pathname === '/api/google/desconectar') return await apiGoogle.desconectar(env, usuario);
+      // Bloques de estudio del calendario con su casilla de Google Tasks. Solo
+      // lectura; la app decide qué cuenta (ver app/js/core/calendario.js).
+      if (url.pathname === '/api/google/estudio') {
+        if (request.method !== 'GET') return json({ error: 'metodo no permitido' }, 405);
+        const desde = url.searchParams.get('desde') || '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(desde) || Date.now() - Date.parse(desde) > 400 * 864e5) {
+          return json({ error: 'fecha de inicio no válida' }, 400);
+        }
+        const r = await google.estudioDelCalendario(env, usuario.espacio, desde);
+        return r.error ? json({ error: r.error, motivo: r.motivo }, r.status) : json({ bloques: r.bloques }, 200);
+      }
       if (url.pathname === '/api/microsoft/estado') return await apiMicrosoft.estado(env, usuario);
       if (url.pathname === '/api/microsoft/desconectar') return await apiMicrosoft.desconectar(env, usuario);
       if (url.pathname === '/api/microsoft/eventos') {

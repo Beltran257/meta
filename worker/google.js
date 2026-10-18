@@ -19,6 +19,9 @@ const CAL_BASE = 'https://www.googleapis.com/calendar/v3';
 const SCOPE = [
   'https://www.googleapis.com/auth/calendar.events',
   'https://www.googleapis.com/auth/drive.file',
+  // tasks.readonly -> saber qué bloques de estudio del calendario marcó como
+  //                   hechos (ver bloquesDeEstudio). Solo lectura.
+  'https://www.googleapis.com/auth/tasks.readonly',
   'https://www.googleapis.com/auth/userinfo.email',
 ].join(' ');
 
@@ -294,6 +297,9 @@ export async function estadoConexion(env, codigo) {
   // es verdad incluso cuando ese token dejó de servir hace semanas.
   return {
     conectado: !!g?.refresh_token && !g?.roto,
+    // Sin esto el estudio no se puede leer del calendario: conexiones de
+    // antes de octubre de 2026 (ver tieneTareas).
+    tareas: String(g?.scope || '').includes('tasks.readonly'),
     email: g?.email || null,
     ultima: g?.ultima || null,
     roto: g?.roto || null,
@@ -322,6 +328,104 @@ export async function tieneDrive(env, codigo) {
   const g = await env.META_DATOS.get(`google:${codigo}`, 'json');
   if (!g?.refresh_token) return false;
   return String(g.scope || '').includes('drive.file');
+}
+
+/** ¿Esta conexión puede leer Google Tasks? Las hechas antes de octubre de
+    2026 no: hay que volver a conectar, igual que con Drive. */
+export async function tieneTareas(env, codigo) {
+  const g = await env.META_DATOS.get(`google:${codigo}`, 'json');
+  return !!g?.refresh_token && String(g.scope || '').includes('tasks.readonly');
+}
+
+/* --- ESTUDIO DESDE EL CALENDARIO -----------------------------------------
+   Él planifica en Google Tasks con hora: cada tarea con hora aparece en su
+   calendario como un bloque, con un enlace a la tarea en la descripción
+   ("…ve a https://tasks.google.com/task/<id>"). El bloque dice CUÁNDO y
+   CUÁNTO; la casilla de la tarea dice si lo HIZO. Aquí se juntan las dos
+   cosas y no se decide nada más: qué asignatura es, si cuenta como estudio y
+   cuántos minutos suma lo calcula la app (app/js/core/calendario.js), que es
+   donde están sus asignaturas y lo que ya ha corregido a mano. */
+const TASKS_BASE = 'https://tasks.googleapis.com/tasks/v1';
+const RE_TAREA = /tasks\.google\.com\/task\/([A-Za-z0-9_-]+)/;
+const normaTitulo = t => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** Función pura: bloques del calendario + tareas -> bloques ya terminados con
+    su estado. `estado` es 'hecha', 'pendiente' o 'sin-tarea' (no se encontró
+    la tarea: borrada, o de una lista que no se pudo leer). */
+export function bloquesDeEstudio(eventos, tareas, ahora = Date.now()) {
+  const porId = new Map(), porTituloDia = new Map();
+  for (const t of tareas || []) {
+    const id = RE_TAREA.exec(String(t?.webViewLink || ''))?.[1];
+    if (id) porId.set(id, t);
+    if (t?.id) porId.set(String(t.id), t);
+    if (t?.due) porTituloDia.set(`${normaTitulo(t.title)}|${String(t.due).slice(0, 10)}`, t);
+  }
+  const salida = [];
+  for (const e of eventos || []) {
+    const enlace = RE_TAREA.exec(String(e?.description || ''))?.[1];
+    if (!enlace || e.status === 'cancelled') continue;
+    const inicio = e.start?.dateTime, fin = e.end?.dateTime;
+    if (!inicio || !fin) continue;                        // de día entero: no es un bloque
+    const fi = Date.parse(fin), ii = Date.parse(inicio);
+    if (!(fi > ii) || fi > ahora) continue;               // aún no ha terminado
+    const t = porId.get(enlace) || porTituloDia.get(`${normaTitulo(e.summary)}|${inicio.slice(0, 10)}`);
+    salida.push({
+      id: String(e.id),
+      titulo: String(e.summary || '').trim().slice(0, 140),
+      inicio, fin,
+      estado: !t ? 'sin-tarea' : t.status === 'completed' ? 'hecha' : 'pendiente',
+    });
+  }
+  return salida.sort((a, b) => a.inicio.localeCompare(b.inicio));
+}
+
+async function todasLasPaginas(url, accessToken, clave, tope = 20) {
+  const items = [];
+  let token = null;
+  for (let i = 0; i < tope; i++) {
+    const u = new URL(url);
+    if (token) u.searchParams.set('pageToken', token);
+    const r = await fetch(u, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!r.ok) throw Object.assign(new Error(`google ${r.status}`), { status: r.status });
+    const d = await r.json();
+    items.push(...(d[clave] || []));
+    token = d.nextPageToken;
+    if (!token) break;
+  }
+  return items;
+}
+
+/** Bloques de estudio desde `desde` (YYYY-MM-DD) hasta ahora. */
+export async function estudioDelCalendario(env, codigo, desde, ahora = new Date()) {
+  const accessToken = await accessTokenDe(env, codigo).catch(() => null);
+  if (!accessToken) return { error: 'Google no está conectado.', motivo: 'sin-google', status: 409 };
+  if (!(await tieneTareas(env, codigo))) {
+    return { error: 'Vuelve a conectar Google para que META pueda ver qué tareas has marcado como hechas.', motivo: 'sin-permiso-tareas', status: 409 };
+  }
+  const timeMin = new Date(`${desde}T00:00:00Z`).toISOString();
+  try {
+    const qCal = new URLSearchParams({
+      timeMin, timeMax: ahora.toISOString(), singleEvents: 'true', orderBy: 'startTime',
+      maxResults: '2500', fields: 'items(id,summary,description,start,end,status),nextPageToken',
+    });
+    const eventos = await todasLasPaginas(`${CAL_BASE}/calendars/primary/events?${qCal}`, accessToken, 'items');
+    const listas = await todasLasPaginas(`${TASKS_BASE}/users/@me/lists?maxResults=100`, accessToken, 'items', 5);
+    const tareas = [];
+    for (const l of listas) {
+      const qT = new URLSearchParams({
+        showCompleted: 'true', showHidden: 'true', updatedMin: timeMin, maxResults: '100',
+        fields: 'items(id,title,status,due,webViewLink),nextPageToken',
+      });
+      tareas.push(...await todasLasPaginas(`${TASKS_BASE}/lists/${encodeURIComponent(l.id)}/tasks?${qT}`, accessToken, 'items'));
+    }
+    return { bloques: bloquesDeEstudio(eventos, tareas, ahora.getTime()) };
+  } catch (e) {
+    if (e.status === 401 || e.status === 403) {
+      return { error: 'Google no deja leer el calendario o las tareas: vuelve a conectar Google.', motivo: 'sin-permiso-tareas', status: 409 };
+    }
+    return { error: 'No se pudo leer tu calendario ahora mismo.', motivo: 'google', status: 502 };
+  }
 }
 
 export async function desconectar(env, codigo) {

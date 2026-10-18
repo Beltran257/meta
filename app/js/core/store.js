@@ -110,8 +110,11 @@ export function limpiarDatos() {
   }
   // El cronómetro no viaja, pero apunta a asignaturas y temas de la cuenta
   // anterior: guardarlo después lo colgaría de una asignatura que no existe.
-  memoria.delete(CLAVES.cronometro.k);
-  try { localStorage.removeItem(CLAVES.cronometro.k); } catch {}
+  // Lo mismo con los bloques leídos del calendario de la cuenta anterior.
+  for (const nombre of ['cronometro', 'calendarioBloques']) {
+    memoria.delete(CLAVES[nombre].k);
+    try { localStorage.removeItem(CLAVES[nombre].k); } catch {}
+  }
   guardarSync({ ts: {}, ultima: null });
 }
 

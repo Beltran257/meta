@@ -23,6 +23,8 @@ export const CLAVES = {
   tests:        { k: 'meta.tests.v2',        desc: 'Tests y simulacros hechos, con aciertos y fallos' },
   notasRapidas: { k: 'meta.rapidas.v2',      desc: 'Notas rápidas: captura al vuelo, sin estructura' },
   apuntesMeta:  { k: 'meta.apuntesMeta.v1',  desc: 'Apuntes (fotos y PDF: copia rápida en IndexedDB, y en la cuenta si hay sesión)' },
+  calendario:   { k: 'meta.calendario.v1',   desc: 'Lo decidido sobre los bloques de estudio del calendario: qué asignatura es, si se hizo, reglas por título' },
+  calendarioBloques: { k: 'meta.calendarioBloques.v1', desc: 'Últimos bloques de estudio leídos de Google Calendar en ESTE aparato' },
 };
 
 export const LISTA_CLAVES = Object.values(CLAVES).map(c => c.k);
@@ -32,6 +34,8 @@ export const LISTA_CLAVES = Object.values(CLAVES).map(c => c.k);
    · sync  -> es el propio mecanismo; sincronizarlo se mordería la cola
    · cronometro -> la sesión en marcha es de quien la tiene delante; la que
      viaja es la sesión ya guardada, dentro de 'sesiones'
+   · calendarioBloques -> cada aparato lee el calendario por su cuenta; lo
+     que viaja es lo que él decide ('calendario') y las sesiones resultantes
    Los apuntes viajan como metadatos (título, texto, asignatura) por el buzón
    de siempre. El contenido de fotos y PDF es aparte (ver worker/archivos.js y
    app/js/core/archivos.js): copia rápida en IndexedDB de cada aparato, y
@@ -39,7 +43,7 @@ export const LISTA_CLAVES = Object.values(CLAVES).map(c => c.k);
    que usa el enlace de carpeta (tools/enlace-carpeta.mjs). */
 export const CLAVES_SINCRONIZABLES = [
   'perfil', 'asignaturas', 'horario', 'temas', 'tareas', 'notas',
-  'sesiones', 'flashcards', 'tests', 'notasRapidas', 'apuntesMeta',
+  'sesiones', 'flashcards', 'tests', 'notasRapidas', 'apuntesMeta', 'calendario',
 ];
 
 /* Por qué los exámenes están dentro de 'tareas' y no en su propia clave:

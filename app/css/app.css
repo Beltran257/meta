@@ -939,3 +939,20 @@
   .examen-cab { gap: var(--e3); }
   .cuenta .n { font-size: 26px; }
 }
+
+/* ===========================================================================
+   ESTUDIO DESDE EL CALENDARIO (vista Estudiar)
+   =========================================================================== */
+.tarjeta.cal .seccion-cab { margin-bottom: var(--e2); }
+.cal-estado { display: flex; align-items: center; gap: var(--e3); flex-wrap: wrap; }
+.cal-estado .parrafo { flex: 1 1 220px; margin: 0; }
+.cal-estado.mal .parrafo { color: var(--mal); }
+.cal-sub { font-size: 13px; font-weight: 600; margin: var(--e4) 0 var(--e2); display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.cal-sub .apag { font-weight: 400; font-size: 12px; }
+.tarjeta.cal .fila .der select { max-width: 170px; }
+.semana-fila .izq .progreso { margin-top: 6px; }
+@media (max-width: 600px) {
+  .cal-dudoso { flex-direction: column; align-items: stretch; gap: var(--e2); }
+  .tarjeta.cal .cal-dudoso .der select { max-width: none; width: 100%; }
+}
+.semana-fila .der { min-width: 84px; }

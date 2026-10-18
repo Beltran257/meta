@@ -28,6 +28,7 @@ self.SHELL = [
   './js/core/registry.js',
   './js/core/store.js',
   './js/core/bus.js',
+  './js/core/calendario.js',
   './js/core/ui.js',
   './js/core/fmt.js',
   './js/core/device.js',

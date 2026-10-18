@@ -1,6 +1,12 @@
 /* ===========================================================================
    ESTUDIAR — sesiones, repaso, flashcards y tests.
 
+   Desde octubre de 2026 las horas entran SOLAS desde el calendario (ver
+   core/calendario.js): él planifica en Google Tasks y marca lo que hace. Por
+   eso lo primero aquí es lo que llega del calendario y lo poco que hay que
+   contestar ("¿lo hiciste?", "¿de qué asignatura es?"). El cronómetro, las
+   flashcards y los tests siguen, pero debajo: son lo secundario.
+
    Todo lo que pasa aquí ALIMENTA al resto: cada sesión suma horas, cada
    repaso y cada test mueven el dominio del tema, y ese dominio es lo que hace
    subir o bajar la preparación de un examen y el estado académico. Si esto
@@ -10,11 +16,12 @@
 import { leer, guardar } from '../core/store.js';
 import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
-import { escapa, hoyLocal, duracion, diasHasta, sumaDias } from '../core/fmt.js';
+import { escapa, hoyLocal, duracion, diasHasta, sumaDias, lunesDe, desdeCuando, fechaCorta } from '../core/fmt.js';
 import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { listaTemas, temaDe, temasDe, registrarRepaso, ajustarDominio, tocaRepasar } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import * as ia from '../core/ia.js';
+import * as calendario from '../core/calendario.js';
 
 const nuevoId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -643,6 +650,122 @@ function cerrarTest() {
   render();
 }
 
+/* ========================== DESDE EL CALENDARIO =========================== */
+
+const hora = iso => new Date(iso).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+const cuandoBloque = b => `${fechaCorta(b.inicio.slice(0, 10))} · ${hora(b.inicio)}–${hora(b.fin)}`;
+
+function bloqueCalendario() {
+  const e = calendario.estado();
+  const desde = fechaCorta(calendario.inicioCurso());
+
+  let cab;
+  if (e.motivo === 'conexion') {
+    cab = `
+      <div class="cal-estado mal">
+        <p class="parrafo chico">${escapa(e.error)}</p>
+        <button class="boton chico" data-accion="ir" data-id="perfil">Ir a Perfil</button>
+      </div>`;
+  } else if (!e.ultima) {
+    cab = `
+      <div class="cal-estado">
+        <p class="parrafo chico">${e.error ? escapa(e.error) : 'Leyendo tu calendario…'}</p>
+        <button class="boton chico fantasma" data-accion="cal-leer">Leer ahora</button>
+      </div>`;
+  } else {
+    cab = `
+      <div class="cal-estado">
+        <p class="parrafo chico"><b>${escapa(duracion(Math.round(e.horas * 60)))}</b> de estudio marcado como hecho desde el ${escapa(desde)}
+          · leído ${escapa(desdeCuando(e.ultima))}${e.error ? ` · <span class="apag">${escapa(e.error)}</span>` : ''}</p>
+        <button class="boton chico sutil" data-accion="cal-leer">Actualizar</button>
+      </div>`;
+  }
+
+  const nombreAsig = id => asignaturaDe(id)?.nombre || '';
+  const pendientes = e.pendientes.slice().reverse();
+  const dudosos = e.dudosos.slice().reverse();
+  return `
+    <div class="tarjeta cal">
+      <div class="seccion-cab"><h2>Desde tu calendario</h2></div>
+      ${cab}
+      ${pendientes.length ? `
+        <h3 class="cal-sub">¿Lo hiciste? <span class="apag">No está marcado en Google Tasks</span></h3>
+        <div class="lista">
+          ${pendientes.map(b => `
+            <div class="fila">
+              <span class="izq">
+                <span class="t1">${escapa(b.titulo)}</span>
+                <span class="t2">${escapa(nombreAsig(b.asignaturaId))} · ${escapa(cuandoBloque(b))}</span>
+              </span>
+              <span class="der acciones">
+                <button class="boton chico sutil" data-accion="cal-no" data-id="${escapa(b.id)}">No</button>
+                <button class="boton chico" data-accion="cal-si" data-id="${escapa(b.id)}">Sí</button>
+              </span>
+            </div>`).join('')}
+        </div>` : ''}
+      ${dudosos.length ? `
+        <h3 class="cal-sub">¿De qué asignatura es? <span class="apag">Se recuerda para ese título</span></h3>
+        <div class="lista">
+          ${dudosos.map(b => `
+            <div class="fila cal-dudoso">
+              <span class="izq">
+                <span class="t1">${escapa(b.titulo)}</span>
+                <span class="t2">${escapa(cuandoBloque(b))}</span>
+              </span>
+              <span class="der">
+                <select data-cal-asignar="${escapa(b.id)}" aria-label="Asignatura de ${escapa(b.titulo)}">
+                  <option value="">Elegir…</option>
+                  ${contenido().map(a => `<option value="${escapa(a.id)}">${escapa(a.nombre)}</option>`).join('')}
+                  <option value="no">No es estudio</option>
+                </select>
+              </span>
+            </div>`).join('')}
+        </div>` : ''}
+    </div>`;
+}
+
+accion('cal-leer', async (d, el) => {
+  el.disabled = true;
+  await calendario.importar({ forzar: true });
+  const e = calendario.estado();
+  if (!e.error) aviso('Calendario al día');
+});
+accion('cal-si', d => { calendario.responder(d.id, true); aviso('Apuntado'); });
+accion('cal-no', d => calendario.responder(d.id, false));
+
+/** Esta semana, por asignatura: venga del calendario o del cronómetro. */
+function bloqueSemana() {
+  const hoy = hoyLocal();
+  const lunes = lunesDe(hoy);
+  const semana = motor.listaSesiones().filter(x => x.fecha >= lunes && x.fecha <= hoy);
+  const total = semana.reduce((t, x) => t + (x.minutos || 0), 0);
+  const porAsig = new Map();
+  for (const x of semana) porAsig.set(x.asignaturaId, (porAsig.get(x.asignaturaId) || 0) + (x.minutos || 0));
+  const filas = contenido()
+    .map(a => ({ a, m: porAsig.get(a.id) || 0 }))
+    .sort((x, y) => y.m - x.m);
+  const max = Math.max(1, ...filas.map(f => f.m));
+  return `
+    <div class="seccion">
+      <div class="seccion-cab"><h2>Esta semana</h2><span class="apag">${escapa(duracion(total))}</span></div>
+      <div class="rejilla3">
+        <div class="metrica"><span class="insignia">${icono('reloj')}</span><div class="v">${escapa(duracion(motor.minutosDe(hoy)))}</div><div class="e">Hoy</div></div>
+        <div class="metrica"><span class="insignia">${icono('reloj')}</span><div class="v">${escapa(duracion(total))}</div><div class="e">Desde el lunes</div></div>
+        <div class="metrica"><span class="insignia ${motor.diasConEstudio(7) ? 'bien' : ''}">${icono('fuego')}</span><div class="v">${motor.diasConEstudio(7)}/7</div><div class="e">Días con estudio</div></div>
+      </div>
+      <div class="lista" data-mt>
+        ${filas.map(({ a, m }) => `
+          <div class="fila semana-fila">
+            <span class="izq">
+              <span class="t1"><span class="asig"><i data-bg="${escapa(a.color)}"></i><span>${escapa(a.nombre)}</span></span></span>
+              ${barra(Math.round((m / max) * 100), m ? 'bien' : '')}
+            </span>
+            <span class="der"><span class="n1 ${m ? '' : 'apag'}">${m ? escapa(duracion(m)) : '—'}</span></span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
 /* ================================= RENDER ================================== */
 
 function render() {
@@ -658,22 +781,22 @@ function render() {
     return;
   }
 
-  const hoy = hoyLocal();
-  const minutosHoy = motor.minutosDe(hoy);
-  const libres = motor.minutosLibresHoy();
-  const racha = motor.diasConEstudio(7);
-
   raiz.innerHTML = `
     <div class="seccion-cab"><h2>Estudiar</h2></div>
 
-    ${sesion ? bloqueSesion() : `
-      <div class="rejilla3">
-        <div class="metrica"><span class="insignia">${icono('reloj')}</span><div class="v">${escapa(duracion(minutosHoy))}</div><div class="e">Hoy</div></div>
-        <div class="metrica"><span class="insignia">${icono('reloj')}</span><div class="v">${escapa(duracion(libres))}</div><div class="e">Te quedan</div></div>
-        <div class="metrica"><span class="insignia ${racha ? 'bien' : ''}">${icono('fuego')}</span><div class="v">${racha}/7</div><div class="e">Días esta semana</div></div>
-      </div>
-      <div class="acciones" data-mt-grande>
-        <button class="boton" data-accion="sesion-nueva">${icono('play')} Empezar una sesión</button>
+    ${sesion ? bloqueSesion() : ''}
+
+    ${bloqueCalendario()}
+
+    ${bloqueSemana()}
+
+    ${sesion ? '' : `
+      <div class="seccion">
+        <div class="seccion-cab"><h2>Sin planificar</h2></div>
+        <div class="cal-estado">
+          <p class="parrafo chico">¿Te has puesto a estudiar sin tenerlo en el calendario? Cronométralo aquí.</p>
+          <button class="boton chico fantasma" data-accion="sesion-nueva">${icono('play')} Cronómetro</button>
+        </div>
       </div>`}
 
     ${bloqueRepasos()}
@@ -683,6 +806,11 @@ function render() {
     ${bloqueUltimas()}`;
 
   pintaEstilos(raiz);
+  raiz.querySelectorAll('[data-cal-asignar]').forEach(sel => sel.addEventListener('change', () => {
+    if (!sel.value) return;
+    calendario.asignar(sel.dataset.calAsignar, sel.value, true);
+    aviso(sel.value === 'no' ? 'No contará como estudio' : 'Apuntado');
+  }));
   if (sesion?.corriendo) arrancarReloj();
 }
 
@@ -712,7 +840,7 @@ function bloqueTemasFlojos() {
 }
 
 function bloqueUltimas() {
-  const l = motor.listaSesiones().slice().sort((a, b) => (b.creado || 0) - (a.creado || 0)).slice(0, 6);
+  const l = motor.listaSesiones().slice().sort((a, b) => (b.creado || 0) - (a.creado || 0)).slice(0, 8);
   if (!l.length) return '';
   return `
     <div class="seccion">
@@ -724,8 +852,8 @@ function bloqueUltimas() {
           return `
             <div class="fila">
               <span class="izq">
-                <span class="t1">${escapa(t?.nombre || a?.nombre || 'Sesión')}</span>
-                <span class="t2">${escapa(TIPOS.find(x => x[0] === s.tipo)?.[1] || '')} · ${escapa(s.fecha)}</span>
+                <span class="t1">${escapa(s.origen === 'calendario' ? s.notas : (t?.nombre || a?.nombre || 'Sesión'))}</span>
+                <span class="t2">${a ? `<span class="asig"><i data-bg="${escapa(a.color)}"></i><span>${escapa(a.nombre)}</span></span> · ` : ''}${escapa(s.origen === 'calendario' ? 'Calendario' : (TIPOS.find(x => x[0] === s.tipo)?.[1] || ''))} · ${escapa(fechaCorta(s.fecha))}</span>
               </span>
               <span class="der"><span class="n1">${escapa(duracion(s.minutos))}</span></span>
             </div>`;
@@ -738,6 +866,7 @@ export default {
   montar(el) {
     raiz = el;
     on('datos-cambio', render);
+    on('calendario-cambio', render);
     // Al volver de segundo plano el intervalo pudo estar dormido: se repinta
     // ya con la hora real en vez de esperar al siguiente tic.
     document.addEventListener('visibilitychange', () => {

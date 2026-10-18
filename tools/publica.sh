@@ -52,6 +52,10 @@ echo '✅ entrar con Google correcto'
 # Calendario del instituto (P5): solo exámenes y entregas, sin bucles con Outlook.
 node tools/prueba-calendario-centro.mjs > /dev/null || { echo '❌ el calendario del instituto falla'; exit 1; }
 echo '✅ calendario del instituto correcto'
+# Las horas de estudio entran solas desde el calendario: un fallo aquí no se
+# ve, se cree (horas de más, o de la asignatura que no es).
+node tools/prueba-estudio-calendario.mjs > /dev/null || { echo '❌ el estudio desde el calendario falla'; exit 1; }
+echo '✅ estudio desde el calendario correcto'
 # Las fotos de apuntes se reducen y nunca se pierden.
 node tools/prueba-foto.mjs > /dev/null || { echo '❌ la reducción de fotos falla'; exit 1; }
 echo '✅ reducción de fotos correcta'
