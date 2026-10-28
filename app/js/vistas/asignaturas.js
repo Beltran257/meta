@@ -8,8 +8,9 @@ import { guardar, leer } from '../core/store.js';
 import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
 import { escapa, duracion, diasHasta, fechaCorta, nota as fnota, pct } from '../core/fmt.js';
-import { PALETA, TIPOS_ASIGNATURA, listaAsignaturas, asignaturaDe, siguienteColor, nuevoId, tipoDe } from '../core/asignaturas.js';
-import { temasDe, crearTema, editarTema, borrarTema, dominioMedio } from '../core/temas.js';
+import { PALETA, TIPOS_ASIGNATURA, listaAsignaturas, asignaturaDe, siguienteColor, nuevoId, tipoDe, fusionarAsignatura, contenido } from '../core/asignaturas.js';
+import { asignaturaDeTitulo, norma } from '../core/calendario.js';
+import { temasDe, crearTema, crearTemas, editarTema, borrarTema, dominioMedio } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import { abrirNotas, mediaGeneral, entradaDe } from './notas.js';
 
@@ -58,7 +59,7 @@ function vistaLista() {
             <h3 data-mt>${escapa(a.nombre)}</h3>
             ${tipoDe(a) !== 'academica' ? `<span class="pil" data-mt>${escapa(TIPOS_ASIGNATURA.find(([v]) => v === tipoDe(a))?.[1] || '')}</span>` : ''}
             <div class="parrafo chico">
-              ${r.temas.length ? `${r.temas.length} ${r.temas.length === 1 ? 'tema' : 'temas'}` : 'Sin temas'}
+              ${r.temas.length ? `${r.temas.length} ${r.temas.length === 1 ? 'tema' : 'temas'}` : 'Sin temario: toca para ponerlo'}
               ${r.tareas.length ? ` · ${r.tareas.length} pendiente${r.tareas.length === 1 ? '' : 's'}` : ''}
             </div>
             ${r.dominio != null ? `<div data-mt>${barra(r.dominio, claseDe(r.dominio))}</div>` : ''}
@@ -83,6 +84,30 @@ function vistaDetalle(a) {
       <button class="btn-icono" data-accion="asig-volver" aria-label="Volver">${icono('atras')}</button>
       <h2>${escapa(a.nombre)}</h2>
       <button class="acc" data-accion="asig-editar" data-id="${escapa(a.id)}">Editar</button>
+    </div>
+
+    <div class="seccion" data-mt-grande>
+      <div class="seccion-cab">
+        <h2>Temario</h2>
+        <span class="apag">${r.temas.length}</span>
+        <button class="acc" data-accion="tema-lote" data-id="${escapa(a.id)}">+ Añadir varios</button>
+      </div>
+      ${r.temas.length ? `
+        <div class="lista">
+          ${r.temas.map(t => `
+            <div class="tema-fila" data-accion="tema-abrir" data-id="${escapa(t.id)}">
+              <span class="n">${escapa(t.nombre)}${t.proximoRepaso && diasHasta(t.proximoRepaso) <= 0 ? ' <span class="pil ojo">toca repasar</span>' : ''}</span>
+              ${barra(t.dominio || 0, claseDe(t.dominio || 0))}
+              <span class="pc">${t.dominio || 0}%</span>
+            </div>`).join('')}
+        </div>` : `
+        <div class="vacio">
+          <p>Aún no hay temario. Cada tema es la unidad con la que META mide tu preparación para un examen.</p>
+          <button class="boton" data-accion="tema-lote" data-id="${escapa(a.id)}">Poner el temario</button>
+        </div>`}
+      <div class="campo" data-mt>
+        <input id="asig-tema-nuevo" type="text" placeholder="Añadir un tema y pulsar Intro" autocomplete="off">
+      </div>
     </div>
 
     <div class="rejilla3" data-mt-grande>
@@ -112,25 +137,6 @@ function vistaDetalle(a) {
       <button class="boton fantasma ancho" data-accion="asig-notas" data-id="${escapa(a.id)}" data-mt>
         Ver notas y objetivo
       </button>
-    </div>
-
-    <div class="seccion" data-mt-grande>
-      <div class="seccion-cab">
-        <h2>Temas</h2>
-        <span class="apag">${r.temas.length}</span>
-      </div>
-      ${r.temas.length ? `
-        <div class="lista">
-          ${r.temas.map(t => `
-            <div class="tema-fila" data-accion="tema-abrir" data-id="${escapa(t.id)}">
-              <span class="n">${escapa(t.nombre)}${t.proximoRepaso && diasHasta(t.proximoRepaso) <= 0 ? ' <span class="pil ojo">toca repasar</span>' : ''}</span>
-              ${barra(t.dominio || 0, claseDe(t.dominio || 0))}
-              <span class="pc">${t.dominio || 0}%</span>
-            </div>`).join('')}
-        </div>` : '<div class="vacio"><p>Sin temas. Son la unidad con la que META mide tu preparación.</p></div>'}
-      <div class="campo" data-mt>
-        <input id="asig-tema-nuevo" type="text" placeholder="Añadir tema y pulsar Intro" autocomplete="off">
-      </div>
     </div>
 
     ${examenes.length ? `
@@ -252,14 +258,38 @@ accion('asig-guardar', (d, el) => {
   aviso('Guardado');
 });
 
-accion('asig-borrar', async d => {
-  if (!await confirmar('Se borra la asignatura y sus temas. Las tareas, notas y apuntes que tuviera se quedan sin asignatura, no se borran.', 'Borrar')) return;
-  guardarAsignaturas(listaAsignaturas().filter(a => a.id !== d.id));
-  for (const t of temasDe(d.id)) borrarTema(t.id);
+accion('asig-borrar', d => {
+  const a = asignaturaDe(d.id);
+  if (!a) return;
+  const otras = contenido().filter(x => x.id !== a.id);
+  // Lo normal es que la que se borra sea la misma de otra con otro nombre
+  // ("Matemáticas (particular)" → "Matemáticas CCSS II"): se propone esa.
+  const sugerida = asignaturaDeTitulo(a.nombre, otras) || '';
+  hoja({
+    titulo: `Borrar «${a.nombre}»`,
+    cuerpo: `
+      <p class="parrafo">Sus sesiones de estudio, tareas, apuntes, temas, notas y casillas del horario
+      pueden pasar a otra asignatura en vez de quedarse sin ninguna.</p>
+      <div class="campo" data-mt>
+        <label for="as-destino">Pasar todo a</label>
+        <select id="as-destino">
+          ${otras.map(x => `<option value="${escapa(x.id)}" ${x.id === sugerida ? 'selected' : ''}>${escapa(x.nombre)}</option>`).join('')}
+          <option value="" ${sugerida ? '' : 'selected'}>Ninguna (se quedan sin asignatura; los temas se borran)</option>
+        </select>
+      </div>`,
+    pie: `<button class="boton fantasma" data-accion="cerrar-hoja">Cancelar</button>
+          <button class="boton peligro" data-accion="asig-borrar-ya" data-id="${escapa(a.id)}">Borrar</button>`,
+  });
+});
+
+accion('asig-borrar-ya', (d, el) => {
+  const destino = el.closest('.hoja').querySelector('#as-destino').value || null;
+  const nombreDestino = asignaturaDe(destino)?.nombre;
+  fusionarAsignatura(d.id, destino);
   cerrarHoja();
   seleccionada = null;
   render();
-  aviso('Asignatura borrada');
+  aviso(nombreDestino ? `Borrada: todo pasa a ${nombreDestino}` : 'Asignatura borrada');
 });
 
 /* ---------------------------------- temas ---------------------------------- */
@@ -296,6 +326,79 @@ accion('tema-abrir', d => {
       <button class="boton fantasma" data-accion="tema-repasar" data-id="${escapa(t.id)}">Repasar ahora</button>
       <button class="boton" data-accion="tema-guardar" data-id="${escapa(t.id)}">Guardar</button>`,
   });
+});
+
+/* Temario de golpe. Se propone lo que ya parece un tema en los títulos de sus
+   apuntes ("TEMA 1 El nacimiento de la filosofía", "BLOQUE 2 …"): con lo que
+   trae el enlace de carpeta suele ser el temario entero, y solo hay que
+   quitar lo que sobre. */
+// Tras la palabra puede venir espacio, guion bajo, punto o ya el número ("TEMA2…", "TEMA_3_…").
+const RE_TEMA = /^\s*(tema|bloque|unidad|ud|lecci[oó]n)(?=[\s_.\d])/i;
+const limpiaTitulo = t => {
+  // "TEMA2ELPENSAMIENTO" → "TEMA 2ELPENSAMIENTO": el número se separa de la palabra.
+  let x = String(t || '').replace(/_+/g, ' ').replace(/^(\s*(?:tema|bloque|unidad|ud|lecci[oó]n))\s*(\d+)/i, '$1 $2')
+    .replace(/\s{2,}/g, ' ').trim();
+  if (x && x === x.toUpperCase()) x = x.charAt(0) + x.slice(1).toLowerCase();
+  return x;
+};
+/** "Tema 2" de "Tema 2 Platón": lo que identifica la unidad, para no proponer
+    dos veces la misma (dos apuntes de un mismo tema son un tema). */
+const unidadDe = t => (/^\s*(tema|bloque|unidad|ud|lecci[oó]n)\s+(\d+)/i.exec(t) || []).slice(1).join(' ').toLowerCase();
+/** Si tras el número viene una palabra larga sin espacios ("2elpensamientodeplaton")
+    el título no se puede aprovechar: se propone solo "Tema 2". */
+const legible = t => {
+  const resto = t.replace(/^\s*(tema|bloque|unidad|ud|lecci[oó]n)\s+\d+\.?\s*/i, '');
+  return !(resto && !/\s/.test(resto) && resto.length > 14);
+};
+
+accion('tema-lote', d => {
+  const a = asignaturaDe(d.id);
+  if (!a) return;
+  const ya = new Set(temasDe(a.id).map(t => norma(t.nombre)));
+  const porUnidad = new Map();
+  for (const ap of leer('apuntesMeta', []).filter(x => x.asignaturaId === a.id && RE_TEMA.test(x.titulo || ''))) {
+    let t = limpiaTitulo(ap.titulo);
+    const u = unidadDe(t);
+    if (!legible(t)) t = limpiaTitulo(`${t.split(/\s+/).slice(0, 2).join(' ')}`.replace(/^(\S+ \d+).*/, '$1'));
+    const previo = porUnidad.get(u || norma(t));
+    if (!previo || t.length > previo.length) porUnidad.set(u || norma(t), t);
+  }
+  const propuestos = [...porUnidad.values()].filter(t => !ya.has(norma(t)))
+    .sort((x, y) => x.localeCompare(y, 'es', { numeric: true }));
+  hoja({
+    titulo: `Temario de ${a.nombre}`,
+    ancha: true,
+    cuerpo: `
+      <p class="parrafo chico">Un tema por línea. Puedes pegar el índice de tu libro o de tu carpeta.
+      ${propuestos.length ? `He puesto abajo los que salen de los títulos de tus apuntes: quita los que no sean un tema.` : ''}</p>
+      <div class="campo" data-mt>
+        <textarea id="tema-lote-texto" class="grande" placeholder="Tema 1. El nacimiento de la filosofía&#10;Tema 2. Platón&#10;Tema 3. Aristóteles">${escapa(propuestos.join('\n'))}</textarea>
+      </div>`,
+    pie: `<button class="boton fantasma" data-accion="cerrar-hoja">Cancelar</button>
+          <button class="boton" data-accion="tema-lote-guardar" data-id="${escapa(a.id)}">Añadir temas</button>`,
+    alAbrir(v) { enfocar(v, '#tema-lote-texto'); },
+  });
+});
+
+accion('tema-lote-guardar', (d, el) => {
+  const texto = el.closest('.hoja').querySelector('#tema-lote-texto').value;
+  // Quita viñetas y numeraciones sueltas ("- ", "1) ") pero deja "Tema 1".
+  const nombres = texto.split('\n').map(l => l.replace(/^\s*([-*•]|\d+[.)])\s+/, '').trim()).filter(Boolean);
+  if (!nombres.length) return aviso('Escribe al menos un tema', 'mal');
+  const creados = crearTemas(d.id, nombres);
+  // Un apunte cuyo título ES el tema se queda asociado a él.
+  const porNombre = new Map(creados.map(t => [norma(t.nombre), t.id]));
+  const apuntes = leer('apuntesMeta', []);
+  const enlazados = apuntes.map(x => (x.asignaturaId === d.id && !x.temaId && porNombre.has(norma(limpiaTitulo(x.titulo)))
+    ? { ...x, temaId: porNombre.get(norma(limpiaTitulo(x.titulo))) } : x));
+  if (enlazados.some((x, i) => x !== apuntes[i])) {
+    guardar('apuntesMeta', enlazados);
+    emitir('local-cambio');
+    emitir('datos-cambio', ['apuntesMeta']);
+  }
+  cerrarHoja();
+  render();
+  aviso(creados.length ? `${creados.length} ${creados.length === 1 ? 'tema añadido' : 'temas añadidos'}` : 'Esos temas ya estaban');
 });
 
 accion('tema-guardar', (d, el) => {

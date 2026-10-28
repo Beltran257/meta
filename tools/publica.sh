@@ -56,6 +56,10 @@ echo '✅ calendario del instituto correcto'
 # ve, se cree (horas de más, o de la asignatura que no es).
 node tools/prueba-estudio-calendario.mjs > /dev/null || { echo '❌ el estudio desde el calendario falla'; exit 1; }
 echo '✅ estudio desde el calendario correcto'
+# Fusionar asignaturas toca ocho secciones a la vez: una referencia colgando no
+# se ve, solo faltan horas, casillas o apuntes.
+node tools/prueba-asignaturas.mjs > /dev/null || { echo '❌ fusionar asignaturas o el temario falla'; exit 1; }
+echo '✅ asignaturas y temario correctos'
 # Las fotos de apuntes se reducen y nunca se pierden.
 node tools/prueba-foto.mjs > /dev/null || { echo '❌ la reducción de fotos falla'; exit 1; }
 echo '✅ reducción de fotos correcta'

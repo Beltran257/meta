@@ -44,6 +44,26 @@ export function crearTema({ asignaturaId, nombre, dominio = 0 }) {
   return t;
 }
 
+/** Varios temas de golpe, de una lista de nombres. Se saltan los vacíos y los
+    que ya existen en esa asignatura (sin mirar mayúsculas ni tildes). Devuelve
+    los creados. Una sola escritura: así viaja una vez, no una por tema. */
+export function crearTemas(asignaturaId, nombres) {
+  const clave = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const vistos = new Set(temasDe(asignaturaId).map(t => clave(t.nombre)));
+  const creados = [];
+  for (const crudo of nombres || []) {
+    const nombre = String(crudo || '').trim().slice(0, 120);
+    if (!nombre || vistos.has(clave(nombre))) continue;
+    vistos.add(clave(nombre));
+    creados.push({
+      id: nuevoId(), asignaturaId, nombre, dominio: 0, paso: 0,
+      ultimoRepaso: null, proximoRepaso: null, creado: Date.now(),
+    });
+  }
+  if (creados.length) guardarTemas([...listaTemas(), ...creados]);
+  return creados;
+}
+
 export function editarTema(id, cambios) {
   guardarTemas(listaTemas().map(t => (t.id === id ? { ...t, ...cambios } : t)));
 }
