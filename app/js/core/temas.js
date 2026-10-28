@@ -14,12 +14,17 @@
 import { leer, guardar } from './store.js';
 import { emitir } from './bus.js';
 import { hoyLocal, sumaDias, diasHasta } from './fmt.js';
+import { comparaOrden, enlacesDeApuntes, unirNombres } from './temario.js';
 
 export const PASOS = [1, 3, 7, 16, 35];
 
 export const listaTemas = () => leer('temas', []);
 export const temaDe = id => listaTemas().find(t => t.id === id) || null;
-export const temasDe = asigId => listaTemas().filter(t => t.asignaturaId === asigId);
+/* Siempre en orden natural ("Tema 2" antes que "Tema 10", A1 antes que B1); lo
+   que no tiene número va detrás, en el orden en que se creó. Así el temario
+   queda ordenado lo apunte como lo apunte, y no hay botón de ordenar. */
+export const temasDe = asigId => listaTemas().filter(t => t.asignaturaId === asigId)
+  .map((t, i) => [t, i]).sort((a, b) => comparaOrden(a[0].nombre, b[0].nombre) || a[1] - b[1]).map(([t]) => t);
 
 export const nuevoId = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -48,13 +53,13 @@ export function crearTema({ asignaturaId, nombre, dominio = 0 }) {
     que ya existen en esa asignatura (sin mirar mayúsculas ni tildes). Devuelve
     los creados. Una sola escritura: así viaja una vez, no una por tema. */
 export function crearTemas(asignaturaId, nombres) {
-  const clave = t => String(t).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
-  const vistos = new Set(temasDe(asignaturaId).map(t => clave(t.nombre)));
+  // unirNombres quita vacíos y repetidos (también "la misma unidad": dos
+  // líneas "Tema 3" se quedan con la más completa) y lo que ya hay.
+  const nuevos = unirNombres([nombres || []], temasDe(asignaturaId).map(t => t.nombre));
   const creados = [];
-  for (const crudo of nombres || []) {
+  for (const crudo of nuevos) {
     const nombre = String(crudo || '').trim().slice(0, 120);
-    if (!nombre || vistos.has(clave(nombre))) continue;
-    vistos.add(clave(nombre));
+    if (!nombre) continue;
     creados.push({
       id: nuevoId(), asignaturaId, nombre, dominio: 0, paso: 0,
       ultimoRepaso: null, proximoRepaso: null, creado: Date.now(),
@@ -62,6 +67,20 @@ export function crearTemas(asignaturaId, nombres) {
   }
   if (creados.length) guardarTemas([...listaTemas(), ...creados]);
   return creados;
+}
+
+/** Cuelga de su tema los apuntes de la asignatura que no tienen ninguno, por
+    el número de unidad en su título. `soloContar` no toca nada: dice cuántos
+    se colgarían (para ofrecerlo). Devuelve cuántos. */
+export function enlazarApuntes(asignaturaId, { soloContar = false } = {}) {
+  const apuntes = leer('apuntesMeta', []);
+  const enlaces = enlacesDeApuntes(apuntes.filter(a => a.asignaturaId === asignaturaId), temasDe(asignaturaId));
+  if (soloContar || !enlaces.length) return enlaces.length;
+  const porApunte = new Map(enlaces.map(e => [e.apunteId, e.temaId]));
+  guardar('apuntesMeta', apuntes.map(a => (porApunte.has(a.id) ? { ...a, temaId: porApunte.get(a.id) } : a)));
+  emitir('local-cambio');
+  emitir('datos-cambio', ['apuntesMeta']);
+  return enlaces.length;
 }
 
 export function editarTema(id, cambios) {

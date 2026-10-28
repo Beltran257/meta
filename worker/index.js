@@ -16,6 +16,7 @@ import { construirIcs } from './ics.js';
 import * as auth from './auth.js';
 import * as google from './google.js';
 import * as estudio from './estudio.js';
+import { leerArchivo } from './temario.js';
 import * as microsoft from './microsoft.js';
 import * as notion from './notion.js';
 import * as ia from './ia.js';
@@ -666,7 +667,7 @@ const ESCRIBEN = [
   '/api/notion/conectar', '/api/notion/desconectar',
   '/api/archivos/subir', '/api/archivos/borrar',
   '/api/notebooklm/sincronizar',
-  '/api/ics/renovar', '/api/estudio/clave',
+  '/api/ics/renovar', '/api/estudio/clave', '/api/temario/leer', '/api/temario/ia',
   // La pide Salud por service binding, pero también valdría la cookie: sin
   // esto, una web cualquiera podría hacer que le apareciera un evento en su
   // calendario. Salud manda la cabecera igual que manda X-Salud en la suya.
@@ -791,6 +792,31 @@ export default {
       }
       if (url.pathname === '/api/google/estado') return await apiGoogle.estado(env, usuario);
       if (url.pathname === '/api/google/desconectar') return await apiGoogle.desconectar(env, usuario);
+      // Temario: leer el texto de un PDF o una foto (no guarda nada), y la IA como
+      // último recurso para sacar los temas. El análisis es de la app
+      // (app/js/core/temario.js); aquí solo lo que necesita red. Ver worker/temario.js.
+      if (url.pathname === '/api/temario/leer') {
+        if (request.method !== 'POST') return json({ error: 'metodo no permitido' }, 405);
+        const bytes = await request.arrayBuffer();
+        if (!bytes.byteLength) return malaPeticion('vacio');
+        if (archivos.demasiadoGrande(bytes.byteLength)) return json({ error: 'archivo demasiado grande' }, 413);
+        const mime = (request.headers.get('Content-Type') || '').split(';')[0].trim().toLowerCase();
+        let nombre = 'temario';
+        try { nombre = decodeURIComponent(request.headers.get('X-Meta-Nombre') || 'temario').slice(0, 120); } catch { /* se queda "temario" */ }
+        const r = await leerArchivo(env, bytes, mime, nombre);
+        return r.error ? json({ error: r.error, motivo: r.motivo }, r.status) : json({ texto: r.texto, via: r.via }, 200);
+      }
+      if (url.pathname === '/api/temario/ia') {
+        if (request.method !== 'POST') return json({ error: 'metodo no permitido' }, 405);
+        const { datos, error } = await cuerpo(request);
+        if (error) return error;
+        try {
+          const r = await ia.listarTemas(env, datos.texto);
+          return json({ texto: r.texto }, 200);
+        } catch (e) {
+          return json({ error: 'La IA no ha podido leer el temario ahora mismo.' }, 502);
+        }
+      }
       // Bloques de estudio que mandó su script, y si lo tiene instalado.
       if (url.pathname === '/api/estudio') {
         if (request.method !== 'GET') return json({ error: 'metodo no permitido' }, 405);

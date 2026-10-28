@@ -958,3 +958,11 @@
 .semana-fila .der { min-width: 84px; }
 .pasos { padding-left: 1.3em; display: flex; flex-direction: column; gap: var(--e3); font-size: 14px; line-height: 1.5; }
 .pasos .boton { margin-top: 6px; display: inline-flex; }
+
+/* Subir el temario (vista Asignaturas) */
+.subir-temario { display: flex; flex-direction: column; gap: var(--e2); }
+.subir-temario label.boton { cursor: pointer; text-align: center; justify-content: center; }
+.subir-temario input[type='file'] { display: none; }
+.subir-temario .lista.suelta { margin: 0; padding: 0; list-style: none; }
+.marca-guardar { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--texto2); }
+.ap-error .t2 { color: var(--mal); }

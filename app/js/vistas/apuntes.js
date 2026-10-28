@@ -475,6 +475,26 @@ function evaluacionHabitual() {
   return ultimo?.evaluacion || '1';
 }
 
+/** Guarda una foto o un PDF como apunte: copia local, entrada en la lista y
+    subida a la cuenta en segundo plano. Lo usan el formulario de apuntes y la
+    subida del temario (vistas/asignaturas.js), para que sea UN solo camino.
+    Devuelve el apunte creado. */
+export async function guardarArchivoApunte({ archivo, tipo, titulo, asignaturaId, temaId = null, evaluacion = null }) {
+  const id = nuevoId();
+  const listo = tipo === 'foto' ? await reducirFoto(archivo) : archivo;
+  await guardarBlob(id, listo, tipo);
+  const nuevo = {
+    id, tipo, titulo, asignaturaId, temaId,
+    evaluacion: evaluacion || evaluacionHabitual(),
+    fecha: hoyLocal(), creado: Date.now(),
+  };
+  guardarLista([...listaApuntes(), nuevo]);
+  // En segundo plano: si sube bien, marcará r2:true en el próximo sync (ver
+  // worker/archivos.js) y no hace falta esperar aquí a que termine.
+  subirArchivo(nuevo, listo);
+  return nuevo;
+}
+
 accion('apunte-archivo-guardar', async (d, el) => {
   const v = el.closest('.hoja');
   const titulo = v.querySelector('#ap-titulo-f').value.trim();
@@ -483,24 +503,16 @@ accion('apunte-archivo-guardar', async (d, el) => {
   if (!elegido) return aviso('Elige un archivo', 'mal');
 
   el.disabled = true;
-  const id = nuevoId();
   try {
-    const archivo = d.tipo === 'foto' ? await reducirFoto(elegido) : elegido;
-    await guardarBlob(id, archivo, d.tipo);
-    const nuevo = {
-      id, tipo: d.tipo, titulo,
+    await guardarArchivoApunte({
+      archivo: elegido, tipo: d.tipo, titulo,
       asignaturaId: v.querySelector('#ap-asig').value,
       temaId: v.querySelector('#ap-tema').value || null,
       evaluacion: v.querySelector('#ap-eval').value,
-      fecha: hoyLocal(), creado: Date.now(),
-    };
-    guardarLista([...listaApuntes(), nuevo]);
+    });
     cerrarHoja();
     render();
     aviso('Guardado');
-    // En segundo plano: si sube bien, marcará r2:true en el próximo sync (ver
-    // worker/archivos.js) y no hace falta esperar aquí a que termine.
-    subirArchivo(nuevo, archivo);
   } catch {
     aviso('No se pudo guardar el archivo', 'mal');
   } finally {

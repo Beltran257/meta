@@ -50,11 +50,11 @@ function textoDe(r) {
   return typeof t === 'string' ? t.trim() : '';
 }
 
-async function preguntar(env, mensajes) {
+async function preguntar(env, mensajes, maxTokens = 512) {
   const fallos = [];
   for (const modelo of MODELOS) {
     try {
-      const r = await env.IA.run(modelo, { messages: mensajes, max_tokens: 512 });
+      const r = await env.IA.run(modelo, { messages: mensajes, max_tokens: maxTokens });
       const texto = textoDe(r);
       // Una respuesta vacía cuenta como fallo del modelo: se pasa al siguiente
       // en vez de devolver una ficha hueca que parezca una respuesta.
@@ -135,3 +135,20 @@ export async function responder(env, { accion, pregunta, contexto }) {
 }
 
 export const ACCIONES = Object.keys(PETICIONES);
+
+/** Los temas de un temario, de su texto, para cuando el analizador de la app
+    (app/js/core/temario.js) no encuentra una estructura clara. Devuelve el
+    texto crudo del modelo: la app lo vuelve a pasar por su analizador, que es
+    el que lo deja limpio y ordenado — el modelo solo hace de "ojo". */
+export async function listarTemas(env, texto) {
+  if (!env.IA) throw new Error('Workers AI no está enlazado en este entorno');
+  const mensajes = [
+    { role: 'system', content: 'Extraes la lista de temas de un temario escolar. Respondes SOLO con la lista, una línea por tema, sin comentarios.' },
+    { role: 'user', content:
+      'Del siguiente texto de un temario o índice, saca los temas, unidades o bloques en su orden. ' +
+      'Una línea por tema con este formato exacto: "Tema N. título corto". Si el texto trae su propia numeración, respétala. ' +
+      'No inventes temas que no estén. Si el texto no es un temario ni un índice, responde solo: NINGUNO\n\n' +
+      String(texto || '').slice(0, 14000) },
+  ];
+  return preguntar(env, mensajes, 1100);
+}

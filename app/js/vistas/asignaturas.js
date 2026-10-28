@@ -10,7 +10,10 @@ import { accion, on, emitir } from '../core/bus.js';
 import { escapa, duracion, diasHasta, fechaCorta, nota as fnota, pct } from '../core/fmt.js';
 import { PALETA, TIPOS_ASIGNATURA, listaAsignaturas, asignaturaDe, siguienteColor, nuevoId, tipoDe, fusionarAsignatura, contenido } from '../core/asignaturas.js';
 import { asignaturaDeTitulo, norma } from '../core/calendario.js';
-import { temasDe, crearTema, crearTemas, editarTema, borrarTema, dominioMedio } from '../core/temas.js';
+import { temasDeTitulos, unirNombres, ordenarNombres } from '../core/temario.js';
+import { temasDeArchivo, tipoDeArchivo } from '../core/temario-lectura.js';
+import { guardarArchivoApunte } from './apuntes.js';
+import { temasDe, crearTema, crearTemas, editarTema, borrarTema, dominioMedio, enlazarApuntes } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import { abrirNotas, mediaGeneral, entradaDe } from './notas.js';
 
@@ -76,6 +79,9 @@ function vistaLista() {
 
 function vistaDetalle(a) {
   const r = resumen(a);
+  const apuntesPorTema = new Map();
+  for (const x of leer('apuntesMeta', [])) if (x.temaId) apuntesPorTema.set(x.temaId, (apuntesPorTema.get(x.temaId) || 0) + 1);
+  const porOrdenar = r.temas.length ? enlazarApuntes(a.id, { soloContar: true }) : 0;
   const notas = leer('notas', {})[a.id];
   const examenes = motor.examenesProximos(365).filter(e => e.asignaturaId === a.id);
 
@@ -96,11 +102,16 @@ function vistaDetalle(a) {
         <div class="lista">
           ${r.temas.map(t => `
             <div class="tema-fila" data-accion="tema-abrir" data-id="${escapa(t.id)}">
-              <span class="n">${escapa(t.nombre)}${t.proximoRepaso && diasHasta(t.proximoRepaso) <= 0 ? ' <span class="pil ojo">toca repasar</span>' : ''}</span>
+              <span class="n">${escapa(t.nombre)}${apuntesPorTema.get(t.id) ? ` <span class="apag">· ${apuntesPorTema.get(t.id)} ${apuntesPorTema.get(t.id) === 1 ? 'apunte' : 'apuntes'}</span>` : ''}${t.proximoRepaso && diasHasta(t.proximoRepaso) <= 0 ? ' <span class="pil ojo">toca repasar</span>' : ''}</span>
               ${barra(t.dominio || 0, claseDe(t.dominio || 0))}
               <span class="pc">${t.dominio || 0}%</span>
             </div>`).join('')}
-        </div>` : `
+        </div>
+        ${porOrdenar ? `
+          <div class="cal-estado" data-mt>
+            <p class="parrafo chico">${porOrdenar} ${porOrdenar === 1 ? 'apunte lleva' : 'apuntes llevan'} un número de tema en el título y no están colgados de su tema.</p>
+            <button class="boton chico" data-accion="tema-ordenar-apuntes" data-id="${escapa(a.id)}">Ordenarlos por tema</button>
+          </div>` : ''}` : `
         <div class="vacio">
           <p>Aún no hay temario. Cada tema es la unidad con la que META mide tu preparación para un examen.</p>
           <button class="boton" data-accion="tema-lote" data-id="${escapa(a.id)}">Poner el temario</button>
@@ -328,77 +339,139 @@ accion('tema-abrir', d => {
   });
 });
 
-/* Temario de golpe. Se propone lo que ya parece un tema en los títulos de sus
-   apuntes ("TEMA 1 El nacimiento de la filosofía", "BLOQUE 2 …"): con lo que
-   trae el enlace de carpeta suele ser el temario entero, y solo hay que
-   quitar lo que sobre. */
-// Tras la palabra puede venir espacio, guion bajo, punto o ya el número ("TEMA2…", "TEMA_3_…").
-const RE_TEMA = /^\s*(tema|bloque|unidad|ud|lecci[oó]n)(?=[\s_.\d])/i;
-const limpiaTitulo = t => {
-  // "TEMA2ELPENSAMIENTO" → "TEMA 2ELPENSAMIENTO": el número se separa de la palabra.
-  let x = String(t || '').replace(/_+/g, ' ').replace(/^(\s*(?:tema|bloque|unidad|ud|lecci[oó]n))\s*(\d+)/i, '$1 $2')
-    .replace(/\s{2,}/g, ' ').trim();
-  if (x && x === x.toUpperCase()) x = x.charAt(0) + x.slice(1).toLowerCase();
-  return x;
-};
-/** "Tema 2" de "Tema 2 Platón": lo que identifica la unidad, para no proponer
-    dos veces la misma (dos apuntes de un mismo tema son un tema). */
-const unidadDe = t => (/^\s*(tema|bloque|unidad|ud|lecci[oó]n)\s+(\d+)/i.exec(t) || []).slice(1).join(' ').toLowerCase();
-/** Si tras el número viene una palabra larga sin espacios ("2elpensamientodeplaton")
-    el título no se puede aprovechar: se propone solo "Tema 2". */
-const legible = t => {
-  const resto = t.replace(/^\s*(tema|bloque|unidad|ud|lecci[oó]n)\s+\d+\.?\s*/i, '');
-  return !(resto && !/\s/.test(resto) && resto.length > 14);
-};
+/* ============================== TEMARIO EN LOTE ==============================
+   Dos entradas para lo mismo: subir los archivos del temario (PDF, Word, foto,
+   texto) o pegar/teclear la lista. En los dos casos acaba en el mismo cuadro,
+   ya ORDENADO y sin repetidos, para revisarlo antes de guardar. Lo que sale de
+   un archivo es una propuesta, nunca se guarda solo: un PDF mal leído no puede
+   llenar el temario de basura sin que él lo vea.
+
+   Cómo se lee cada cosa: core/temario-lectura.js. Cómo se sacan los temas del
+   texto: core/temario.js (con pruebas en tools/prueba-temario.mjs). */
+
+let archivosTemario = [];       // lo elegido en la hoja abierta, para poder guardarlo en Apuntes
+
+const lineasDe = ta => ta.value.split('\n').map(l => l.trim()).filter(Boolean);
+const ponLineas = (ta, l) => { ta.value = l.join('\n'); };
+
+function filaArchivo(estado) {
+  const icono_ = estado.ok === true ? '✓' : estado.ok === false ? '✕' : '…';
+  return `
+    <li class="fila ${estado.ok === false ? 'ap-error' : ''}">
+      <span class="izq">
+        <span class="t1">${escapa(estado.nombre)}</span>
+        <span class="t2">${escapa(estado.texto)}</span>
+      </span>
+      <span class="der"><span class="pil ${estado.ok === true ? 'bien' : estado.ok === false ? 'mal' : ''}">${icono_}</span></span>
+    </li>`;
+}
 
 accion('tema-lote', d => {
   const a = asignaturaDe(d.id);
   if (!a) return;
-  const ya = new Set(temasDe(a.id).map(t => norma(t.nombre)));
-  const porUnidad = new Map();
-  for (const ap of leer('apuntesMeta', []).filter(x => x.asignaturaId === a.id && RE_TEMA.test(x.titulo || ''))) {
-    let t = limpiaTitulo(ap.titulo);
-    const u = unidadDe(t);
-    if (!legible(t)) t = limpiaTitulo(`${t.split(/\s+/).slice(0, 2).join(' ')}`.replace(/^(\S+ \d+).*/, '$1'));
-    const previo = porUnidad.get(u || norma(t));
-    if (!previo || t.length > previo.length) porUnidad.set(u || norma(t), t);
-  }
-  const propuestos = [...porUnidad.values()].filter(t => !ya.has(norma(t)))
-    .sort((x, y) => x.localeCompare(y, 'es', { numeric: true }));
+  archivosTemario = [];
+  const ya = temasDe(a.id).map(t => t.nombre);
+  const deApuntes = unirNombres([temasDeTitulos(leer('apuntesMeta', []).filter(x => x.asignaturaId === a.id).map(x => x.titulo))], ya);
   hoja({
     titulo: `Temario de ${a.nombre}`,
     ancha: true,
     cuerpo: `
-      <p class="parrafo chico">Un tema por línea. Puedes pegar el índice de tu libro o de tu carpeta.
-      ${propuestos.length ? `He puesto abajo los que salen de los títulos de tus apuntes: quita los que no sean un tema.` : ''}</p>
+      <div class="subir-temario">
+        <label class="boton ancho" for="tema-archivos">${icono('descarga')} Subir el temario (PDF, Word, foto)</label>
+        <input id="tema-archivos" class="oculto" type="file" multiple
+               accept=".pdf,.docx,.txt,.md,image/*">
+        <p class="pista">Puedes elegir varios a la vez: el índice del libro, la guía de la asignatura, una foto de la
+        pizarra… META saca los temas y los deja ordenados; tú revisas antes de guardar.</p>
+        <ul class="lista suelta" id="tema-archivos-estado"></ul>
+        <label class="marca-guardar oculto" id="tema-guardar-caja">
+          <input type="checkbox" id="tema-guardar-archivos" checked> Guardar también estos archivos en Apuntes de ${escapa(a.nombre)}
+        </label>
+      </div>
       <div class="campo" data-mt>
-        <textarea id="tema-lote-texto" class="grande" placeholder="Tema 1. El nacimiento de la filosofía&#10;Tema 2. Platón&#10;Tema 3. Aristóteles">${escapa(propuestos.join('\n'))}</textarea>
+        <label for="tema-lote-texto">Temas (uno por línea)</label>
+        <textarea id="tema-lote-texto" class="grande" placeholder="Tema 1. El nacimiento de la filosofía&#10;Tema 2. Platón&#10;Tema 3. Aristóteles">${escapa(deApuntes.join('\n'))}</textarea>
+        <div class="pista" id="tema-lote-pista">${deApuntes.length
+          ? `Ya he puesto los ${deApuntes.length} que salen de los títulos de tus apuntes: quita los que no sean un tema.`
+          : 'También puedes pegar aquí el índice a mano.'}</div>
       </div>`,
     pie: `<button class="boton fantasma" data-accion="cerrar-hoja">Cancelar</button>
+          <button class="boton sutil" data-accion="tema-lote-ordenar">Ordenar</button>
           <button class="boton" data-accion="tema-lote-guardar" data-id="${escapa(a.id)}">Añadir temas</button>`,
-    alAbrir(v) { enfocar(v, '#tema-lote-texto'); },
+    alAbrir(v) {
+      const ta = v.querySelector('#tema-lote-texto');
+      const lista = v.querySelector('#tema-archivos-estado');
+      v.querySelector('#tema-archivos').addEventListener('change', async ev => {
+        const elegidos = [...ev.target.files];
+        ev.target.value = '';
+        const estados = elegidos.map(f => ({ nombre: f.name, ok: null, texto: 'Leyendo…' }));
+        const pinta = () => { lista.innerHTML = estados.map(filaArchivo).join(''); };
+        pinta();
+        for (let i = 0; i < elegidos.length; i++) {
+          const f = elegidos[i];
+          try {
+            const r = await temasDeArchivo(f);
+            const nuevos = unirNombres([lineasDe(ta), r.temas], ya);
+            ponLineas(ta, nuevos);
+            estados[i] = { nombre: f.name, ok: r.temas.length > 0,
+              texto: r.temas.length
+                ? `${r.temas.length} ${r.temas.length === 1 ? 'tema' : 'temas'}${r.modo === 'ia' ? ' (con IA: revísalos)' : ''}`
+                : 'Lo he leído pero no encuentro temas claros. Pega el índice a mano o prueba con otra página.' };
+            if (['pdf', 'foto'].includes(tipoDeArchivo(f))) archivosTemario.push(f);
+          } catch (e) {
+            estados[i] = { nombre: f.name, ok: false, texto: e.message || 'No se pudo leer' };
+          }
+          pinta();
+        }
+        if (archivosTemario.length) v.querySelector('#tema-guardar-caja').classList.remove('oculto');
+        v.querySelector('#tema-lote-pista').textContent = `Revisa la lista: ${lineasDe(ta).length} temas, ordenados. Quita los que sobren o corrige los títulos.`;
+      });
+    },
   });
 });
 
-accion('tema-lote-guardar', (d, el) => {
-  const texto = el.closest('.hoja').querySelector('#tema-lote-texto').value;
-  // Quita viñetas y numeraciones sueltas ("- ", "1) ") pero deja "Tema 1".
-  const nombres = texto.split('\n').map(l => l.replace(/^\s*([-*•]|\d+[.)])\s+/, '').trim()).filter(Boolean);
-  if (!nombres.length) return aviso('Escribe al menos un tema', 'mal');
+accion('tema-lote-ordenar', (d, el) => {
+  const ta = el.closest('.hoja').querySelector('#tema-lote-texto');
+  ponLineas(ta, unirNombres([lineasDe(ta)]));
+  aviso('Ordenados');
+});
+
+accion('tema-lote-guardar', async (d, el) => {
+  const v = el.closest('.hoja');
+  const nombres = lineasDe(v.querySelector('#tema-lote-texto'))
+    .map(l => l.replace(/^\s*([-*•]|\d+[.)])\s+(?=\D)/, '').trim()).filter(Boolean);
+  const guardarArchivos = v.querySelector('#tema-guardar-archivos')?.checked && archivosTemario.length;
+  if (!nombres.length && !guardarArchivos) return aviso('Escribe al menos un tema', 'mal');
+  el.disabled = true;
+
   const creados = crearTemas(d.id, nombres);
-  // Un apunte cuyo título ES el tema se queda asociado a él.
-  const porNombre = new Map(creados.map(t => [norma(t.nombre), t.id]));
-  const apuntes = leer('apuntesMeta', []);
-  const enlazados = apuntes.map(x => (x.asignaturaId === d.id && !x.temaId && porNombre.has(norma(limpiaTitulo(x.titulo)))
-    ? { ...x, temaId: porNombre.get(norma(limpiaTitulo(x.titulo))) } : x));
-  if (enlazados.some((x, i) => x !== apuntes[i])) {
-    guardar('apuntesMeta', enlazados);
-    emitir('local-cambio');
-    emitir('datos-cambio', ['apuntesMeta']);
+  let guardados = 0;
+  if (guardarArchivos) {
+    const existentes = new Set(leer('apuntesMeta', []).filter(x => x.asignaturaId === d.id).map(x => norma(x.titulo)));
+    for (const f of archivosTemario) {
+      const titulo = `Temario · ${f.name.replace(/\.[a-z0-9]+$/i, '')}`;
+      if (existentes.has(norma(titulo))) continue;
+      try {
+        await guardarArchivoApunte({ archivo: f, tipo: tipoDeArchivo(f), titulo, asignaturaId: d.id });
+        guardados++;
+      } catch { /* un archivo que no se guarda no impide guardar los temas */ }
+    }
   }
+  // Los apuntes ya subidos cuyo título dice "Tema 3" se cuelgan del tema 3.
+  const colgados = enlazarApuntes(d.id);
   cerrarHoja();
   render();
-  aviso(creados.length ? `${creados.length} ${creados.length === 1 ? 'tema añadido' : 'temas añadidos'}` : 'Esos temas ya estaban');
+  const partes = [
+    creados.length ? `${creados.length} ${creados.length === 1 ? 'tema añadido' : 'temas añadidos'}` : 'Esos temas ya estaban',
+    guardados ? `${guardados} ${guardados === 1 ? 'archivo guardado' : 'archivos guardados'} en Apuntes` : '',
+    colgados ? `${colgados} ${colgados === 1 ? 'apunte ordenado' : 'apuntes ordenados'} por tema` : '',
+  ].filter(Boolean);
+  aviso(partes.join(' · '));
+});
+
+accion('tema-ordenar-apuntes', d => {
+  const n = enlazarApuntes(d.id);
+  render();
+  aviso(n ? `${n} ${n === 1 ? 'apunte colgado' : 'apuntes colgados'} de su tema` : 'No he encontrado apuntes que encajen');
 });
 
 accion('tema-guardar', (d, el) => {

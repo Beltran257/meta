@@ -60,6 +60,10 @@ echo '✅ estudio desde el calendario correcto'
 # se ve, solo faltan horas, casillas o apuntes.
 node tools/prueba-asignaturas.mjs > /dev/null || { echo '❌ fusionar asignaturas o el temario falla'; exit 1; }
 echo '✅ asignaturas y temario correctos'
+# Sacar los temas de un PDF/Word/foto: un tema que falta o con otro número no se
+# ve, se cree. Textos tal como los suelta un PDF de verdad.
+node tools/prueba-temario.mjs > /dev/null || { echo '❌ leer el temario de un archivo falla'; exit 1; }
+echo '✅ lectura del temario correcta'
 # Las fotos de apuntes se reducen y nunca se pierden.
 node tools/prueba-foto.mjs > /dev/null || { echo '❌ la reducción de fotos falla'; exit 1; }
 echo '✅ reducción de fotos correcta'
