@@ -101,6 +101,46 @@ TEMARIO APARTADO C. LA HISTORIA DESDE 1788 D.C.
     [r.temas[0].slice(0, 2), r.temas[3].slice(0, 2), r.temas[6].slice(0, 3), r.temas[7].slice(0, 2)], ['A1', 'B1', 'B10', 'C1']);
 }
 
+/* Lo que devuelve de verdad el servidor para esa guía (copiado de producción):
+   etiquetas, cabeceras y primeros puntos PEGADOS, y un bloque de metadatos. */
+{
+  const real = `# guia.pdf
+## Metadata
+- PDFFormatVersion=1.5
+- Producer=PDF Printer / www.bullzip.com / FG / Freeware Edition (max 10 users)
+- Title=Microsoft Word - 1.- GUÍA BÁSICA HISTESP 26.27.docx
+
+## Contents
+### Page 1
+I.E.S. GIL Y CARRASCO (PONFERRADA) GEOHISTARATETEMARIO “HISTORIA DE ESPAÑA” (2º BACH)TEMARIO APARTADO A. LA HISTORIA DESDE 218 A.C. HASTA 1474 D.C.1. La importancia de la romanización en la configuración de la cultura española. CORTA
+2. Las invasiones germánicas y las características de la monarquía visigoda. CORTA
+3. La evolución política de Al-Ándalus. LARGA
+6. El origen y características del régimen señorial y la sociedad estamental en el ámbito cristiano. PRÁCTICATEMARIO APARTADO B. LA HISTORIA DESDE 1474 D.C. HASTA 1788 D.C.1. La unión dinástica de los RRCC y la formación del Estado Moderno. PRÁCTICA
+2. La unidad católica de la monarquía y la situación de las minorías religiosas durante el reinado
+de los RRCC.
+PRÁCTICA
+10. La Ilustración en España; el despotismo ilustrado. CORTATEMARIO APARTADO C. LA HISTORIA DESDE 1788 D.C. HASTA 1902.1. La Guerra de la Independencia: antecedentes, bandos en conflicto y resumen de su desarrollo. PRÁCTICA
+2. Las Cortes de Cádiz y las características de la Constitución de 1812. PRÁCTICA
+16. Consecuencias para España de la crisis del 98 en los ámbitos económico, político e ideológico. LARGA
+
+
+### Page 2
+I.E.S. GIL Y CARRASCO (PONFERRADA) GEOHISTARATETEMARIO APARTADO D. LA HISTORIA DESDE 1902 HASTA 1939.1. El “revisionismo político” inicial del reinado de Alfonso XIII y las principales medidas adoptadas. CORTA
+2. La quiebra del sistema de la Restauración: la crisis de 1917. CORTA
+12. Los costes humanos y las consecuencias de la Guerra Civil. El papel del exilio. PRÁCTICATEMARIO APARTADO E. LA HISTORIA DESDE 1939 HASTA ACTUALIDAD.1. Los fundamentos ideológicos y las bases sociales del Franquismo. CORTA
+### Page 3
+CRONOLOGÍA DE “HISTORIA DE ESPAÑA” (2º BACH)APARTADO A. ROMA, VISIGODOS, MUSULMANES Y RECONQUISTA CRISTIANA (SIGLO III A.C.
+AL XV D.C.).ROMA. Romanización, Conflicto remensa.APARTADO B. REYES CATÓLICOS, AUSTRIAS Y LOS PRIMEROS BORBONES.REYES CATÓLICOS: Inquisición.`;
+  const r = T.temasDeTexto(real);
+  const claves = r.temas.map(t => /^[A-E]\d+/.exec(t)[0]);
+  igual('texto REAL de producción (todo pegado): los 5 apartados se separan y cada punto es suyo',
+    claves, ['A1', 'A2', 'A3', 'A6', 'B1', 'B2', 'B10', 'C1', 'C2', 'C16', 'D1', 'D2', 'D12', 'E1']);
+  igual('…sin cabeceras ni etiquetas dentro de los títulos',
+    r.temas.filter(t => /TEMARIO|APARTADO|CORTA|LARGA|PR[ÁA]CTICA|GEOHISTA/.test(t)), []);
+  igual('…y la lista de cronología del final (sin números) no mete ruido',
+    r.temas.length, 14);
+}
+
 igual('lista numerada sin apartados explícitos: si la numeración reinicia, se separan en A, B',
   T.temasDeTexto('1. Uno primero\n2. Dos primero\n3. Tres primero\n1. Uno segundo\n2. Dos segundo').temas,
   ['A1. Uno primero', 'A2. Dos primero', 'A3. Tres primero', 'B1. Uno segundo', 'B2. Dos segundo']);

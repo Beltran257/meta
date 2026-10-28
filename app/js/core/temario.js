@@ -141,7 +141,31 @@ export function unirNombres(listas, excluir = []) {
 
 /* ------------------------------ el analizador ----------------------------- */
 
-const lineasDe = texto => String(texto || '').replace(/\r/g, '').split('\n')
+/** Deshace lo que la extracción de un PDF pega. Con la guía de PAU real, el
+    servidor devuelve (comprobado en producción, no inventado):
+
+        …el despotismo ilustrado. CORTATEMARIO APARTADO C. LA HISTORIA DESDE 1788 D.C. HASTA 1902.1. La Guerra…
+
+    es decir: la etiqueta del último punto, la cabecera del apartado y el
+    primer punto del siguiente, todo en una línea y sin espacios. Cada regla
+    parte de un patrón muy concreto (mayúsculas de cabecera, etiqueta, año
+    seguido de "1.") para no romper un texto normal. */
+export function desglosa(texto) {
+  return String(texto || '').replace(/\r/g, '')
+    // el bloque de metadatos del PDF ("## Metadata" … hasta el siguiente título)
+    .replace(/^#{1,6}\s*metadata\s*$[\s\S]*?(?=^#{1,6}\s)/gim, '')
+    // "…CORTATEMARIO", "…PRÁCTICAT…": la etiqueta pegada a lo que viene en mayúsculas
+    .replace(/(CORTA|LARGA|PR[ÁA]CTICA|TE[ÓO]RICA)(?=[A-ZÁÉÍÓÚÑ]{3,})/g, '$1\n')
+    // cabecera de apartado pegada a lo de antes
+    .replace(/(?<=\S)(?=TEMARIO\s+APARTADO\b)/g, '\n')
+    .replace(/(?<=[.)])(?=APARTADO\s+[A-Z]\b)/g, '\n')
+    // primer punto pegado a la cabecera: "…D.C.1. La…", "…ACTUALIDAD.1. Los…", "…1902.1. La…"
+    .replace(/(?<=[A-Za-zÁ-ú][.:;»”"]|\b\d{4}\.)(?=\d{1,2}\.\s+[A-ZÁÉÍÓÚÑ¿¡“"(])/g, '\n')
+    // punto nuevo en la misma línea que la etiqueta del anterior
+    .replace(/(?<=\b(?:CORTA|LARGA|PR[ÁA]CTICA))[ \t]+(?=\d{1,2}\.\s+[A-ZÁÉÍÓÚÑ¿¡“"(])/g, '\n');
+}
+
+const lineasDe = texto => desglosa(texto).split('\n')
   .filter(l => !RUIDO.some(re => re.test(l)));
 
 /** Si el título de una entrada no es legible ("TEMA2ELPENSAMIENTODEPLATON"). */
