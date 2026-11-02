@@ -422,7 +422,9 @@ export function abrirTemarioLote(asignaturaId) {
             const grupos = apartadosDeTexto(r.texto);
             gruposTemario.push(...grupos);
             const nov = novedadesDeTemario(asignaturaId, r.temas, grupos);
+            const nSub = grupos.reduce((t, g) => t + g.apartados.length, 0);
             const partesNov = [
+              nSub ? `${nSub} apartados y subapartados` : '',
               nov.nuevos.length ? `nuevos: ${nov.nuevos.join(', ')}` : '',
               nov.ampliados.length ? `apartados nuevos en ${nov.ampliados.map(x => `${x.tema.split('.')[0]} (${x.apartados.join(', ')})`).join('; ')}` : '',
               nov.conocidos.length ? `ya tenías ${nov.conocidos.map(n => n.split('.')[0]).join(', ')}` : '',
