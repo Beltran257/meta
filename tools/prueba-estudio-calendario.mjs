@@ -22,12 +22,13 @@ globalThis.localStorage = {
 
 const { asignaturaDeTitulo, esLogistica, tipoDeTitulo, sesionesDeBloques, inicioCurso } =
   await import('../app/js/core/calendario.js');
-const { bloquesDeEstudio, clasesParticulares, procesarEnvio } = await import('../worker/estudio.js');
+const { bloquesDeEstudio, clasesParticulares, procesarEnvio, fusionarBloques } = await import('../worker/estudio.js');
 const { codigoScript, MANIFIESTO } = await import('../app/js/core/script-estudio.js');
 
 let fallos = 0;
 const mal = m => { console.log('❌ ' + m); fallos++; };
 const bien = m => console.log('✅ ' + m);
+const igual = (que, a, b) => (JSON.stringify(a) === JSON.stringify(b) ? bien(que) : mal(`${que} — salió ${JSON.stringify(a)}, tocaba ${JSON.stringify(b)}`));
 
 const ASIG = [
   ['mat', 'Matemáticas CCSS II'], ['len', 'Lengua y Literatura'], ['ing', 'Inglés'],
@@ -168,6 +169,19 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
   s['cal-x'] === 'art:teoria:60' && r.dudosos.map(x => x.id).join() === 'y'
     ? bien('si el título no dice la asignatura, la lista de Tasks sí; si tampoco, se pregunta')
     : mal(`lista de Tasks: ${JSON.stringify(s)} · dudosos ${r.dudosos.map(x => x.id)}`);
+}
+
+/* ------------- el historial no depende de que siga en el calendario -------- */
+{
+  const b = (id, estado, extra = {}) => ({ id, titulo: id, inicio: `2026-10-${id.padStart(2, '0')}T10:00:00+02:00`, fin: `2026-10-${id.padStart(2, '0')}T11:00:00+02:00`, estado, ...extra });
+  const previos = [b('1', 'hecha'), b('2', 'hecha'), b('3', 'pendiente'), b('4', 'hecha', { fuente: 'particular' }), b('5', 'pendiente')];
+  const nuevos = [b('2', 'pendiente'), b('6', 'hecha')];       // el calendario ya no trae 1, 3, 4 ni 5; y la 2 se desmarcó
+  const r = fusionarBloques(previos, nuevos);
+  igual('una tarea HECHA que desaparece del calendario se conserva (ya se estudió)', r.filter(x => x.id === '1').map(x => x.estado), ['hecha']);
+  igual('lo que llega ahora manda: una tarea desmarcada deja de contar', r.find(x => x.id === '2').estado, 'pendiente');
+  igual('una pendiente que desaparece se olvida, y una particular borrada deja de contar', r.map(x => x.id).sort(), ['1', '2', '6']);
+  igual('un envío vacío (fallo del script) NO vacía el historial', fusionarBloques(previos, []).map(x => x.id), ['1', '2']);
+  igual('el resultado sale ordenado por fecha', r.map(x => x.id), ['1', '2', '6']);
 }
 
 /* -------------------------- lo que manda el script ------------------------- */

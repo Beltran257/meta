@@ -116,8 +116,26 @@ export async function espacioDeClave(request, env) {
   return (await env.META_DATOS.get(kClave(await sha256Hex(m[1])), 'json'))?.espacio || null;
 }
 
+/** El historial NO se reconstruye con lo que el calendario tiene hoy. Una
+    tarea completada puede desaparecer de Google Calendar (se limpian las
+    completadas, o Google las retira): si las horas dependieran de que siga
+    ahí, estudiar de verdad dejaría de contar con el tiempo — y así pasó
+    (2 nov 2026: de 78 bloques a 32, ~13 h perdidas). Por eso:
+    · lo que llega ahora manda (si una tarea cambia de estado, gana lo nuevo);
+    · un bloque HECHO que ya no llega se conserva: ya se estudió;
+    · uno pendiente que desaparece se olvida: nunca llegó a contar;
+    · las particulares siguen al calendario: no tienen tarea que las
+      confirme, así que si borra una (la clase se canceló) deja de contar.
+    Y un envío vacío por un fallo del script ya no puede vaciar el historial. */
+export function fusionarBloques(previos, nuevos) {
+  const llegan = new Set((nuevos || []).map(b => b.id));
+  const conservados = (previos || []).filter(b => !llegan.has(b.id) && b.estado === 'hecha' && b.fuente !== 'particular');
+  return [...(nuevos || []), ...conservados].sort((a, b) => a.inicio.localeCompare(b.inicio)).slice(-TOPE);
+}
+
 export async function guardar(env, espacio, bloques) {
-  await env.META_DATOS.put(kDatos(espacio), JSON.stringify({ bloques, ultima: Date.now() }));
+  const previos = (await env.META_DATOS.get(kDatos(espacio), 'json'))?.bloques || [];
+  await env.META_DATOS.put(kDatos(espacio), JSON.stringify({ bloques: fusionarBloques(previos, bloques), ultima: Date.now() }));
 }
 
 export async function leer(env, espacio) {
