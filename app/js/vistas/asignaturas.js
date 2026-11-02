@@ -316,8 +316,7 @@ accion('tema-abrir', d => {
         <span class="v">${t.dominio || 0}%</span>
       </div>
       ${barra(t.dominio || 0, claseDe(t.dominio || 0))}
-      <p class="pista">Sube y baja solo con tus repasos, tests y sesiones. También puedes
-      ajustarlo a mano si crees que no refleja la realidad.</p>
+      <p class="pista">Es tu estimación de cuánto te lo sabes: cámbiala cuando quieras.</p>
 
       <div class="campo" data-mt-grande>
         <label for="tema-nombre">Nombre</label>

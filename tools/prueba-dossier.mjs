@@ -41,10 +41,6 @@ const buzon = {
       { id: 'p3', asignaturaId: 'a2', titulo: 'Regla de la cadena', texto: 'f(g(x))', tipo: 'texto', evaluacion: '1' },
       { id: 'p4', asignaturaId: 'a1', titulo: 'PDF escaneado sin OCR', texto: '', tipo: 'pdf', evaluacion: 'pau' },
     ] },
-    flashcards: { datos: [
-      { id: 'f1', temaId: 't1', anverso: '¿Qué es el turno pacífico?', reverso: 'Alternancia pactada' },
-      { id: 'f2', temaId: 't3', anverso: 'Derivada de x²', reverso: '2x' },
-    ] },
     tareas: { datos: [
       { id: 'x1', asignaturaId: 'a1', tipo: 'examen', titulo: 'Examen de la Restauración', fecha: '2026-09-30', notas: 'Temas 1 y 2' },
       { id: 'x2', asignaturaId: 'a1', tipo: 'tarea', titulo: 'Comentario de texto', fecha: '2026-08-01' },  // pasada
@@ -72,10 +68,9 @@ comprueba('un buzón vacío no revienta', dossieres({ claves: {} }, AHORA).lengt
    hay forma de notarlo desde fuera. */
 comprueba('el dossier de Historia NO trae temas de Matemáticas', !historia.html.includes('Derivadas'));
 comprueba('el dossier de Historia NO trae apuntes de Matemáticas', !historia.html.includes('Regla de la cadena'));
-comprueba('el dossier de Historia NO trae tarjetas de Matemáticas', !historia.html.includes('Derivada de x'));
 comprueba('el dossier de Historia NO trae exámenes de Matemáticas', !historia.html.includes('Examen de derivadas'));
 comprueba('el dossier de Matemáticas NO trae nada de Historia',
-  !mates.html.includes('Restauración') && !mates.html.includes('Canovismo') && !mates.html.includes('turno pacífico'));
+  !mates.html.includes('Restauración') && !mates.html.includes('Canovismo'));
 comprueba('las notas son las de SU asignatura', historia.html.includes('7,5') && !mates.html.includes('7,5'));
 
 /* --- 3. Está lo que tiene que estar ---------------------------------------- */
@@ -83,7 +78,7 @@ comprueba('lleva el temario con su dominio', historia.html.includes('La Restaura
 comprueba('lleva el texto de los apuntes', historia.html.includes('Turno pacífico') && historia.html.includes('Caciquismo'));
 comprueba('lleva el texto que el OCR sacó de una foto', historia.html.includes('Constitución de 1876'));
 comprueba('avisa de que un apunte viene de una foto', historia.html.includes('texto leído de una foto'));
-comprueba('lleva las tarjetas de repaso', historia.html.includes('turno pacífico') && historia.html.includes('Alternancia pactada'));
+comprueba('ya no hay sección de tarjetas (se quitaron las flashcards)', !historia.html.includes('Tarjetas de repaso'));
 comprueba('agrupa los apuntes por evaluación', historia.html.includes('1ª evaluación') && historia.html.includes('2ª evaluación'));
 comprueba('el apunte de PAU va en su apartado', historia.html.includes('PAU'));
 comprueba('un PDF sin OCR se explica en vez de salir vacío', historia.html.includes('todavía no se ha extraído texto'));

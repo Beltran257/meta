@@ -3,7 +3,7 @@
 
    Un tema pertenece a una asignatura y guarda un DOMINIO estimado (0-100).
    Ese número no se lo inventa nadie: sube y baja solo con lo que haces
-   (repasos, tests, sesiones de estudio), y es lo que alimenta la preparación
+   (repasos, sesiones de estudio) y a mano, y es lo que alimenta la preparación
    de un examen, la detección de puntos flojos y el plan del día.
 
    El repaso espaciado es deliberadamente sencillo y explicable: cinco pasos

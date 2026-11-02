@@ -2,7 +2,7 @@
    ALMACÉN — envoltorio de localStorage sobre el registro de claves.
    Nadie llama a localStorage directamente: así el backup nunca se queda corto.
    =========================================================================== */
-import { CLAVES, LISTA_CLAVES, CLAVES_SINCRONIZABLES, APP } from './registry.js';
+import { CLAVES, LISTA_CLAVES, CLAVES_SINCRONIZABLES, CLAVES_OBSOLETAS, APP } from './registry.js';
 
 const memoria = new Map(); // espejo en RAM: sobrevive a modo privado / cuota llena
 
@@ -153,7 +153,7 @@ export function importar(copia) {
 
 /** Borrado total, DERIVADO del registro igual que la copia de seguridad. */
 export function borrarTodo() {
-  for (const clave of LISTA_CLAVES) {
+  for (const clave of [...LISTA_CLAVES, ...CLAVES_OBSOLETAS]) {
     try { localStorage.removeItem(clave); } catch {}
   }
   memoria.clear();
@@ -168,4 +168,11 @@ export async function pedirPersistencia() {
     }
   } catch {}
   return false;
+}
+
+/** Quita lo que dejaron las secciones que ya no existen (ver CLAVES_OBSOLETAS). */
+export function limpiarObsoletas() {
+  for (const clave of CLAVES_OBSOLETAS) {
+    try { localStorage.removeItem(clave); } catch {}
+  }
 }

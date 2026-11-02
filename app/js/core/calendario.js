@@ -24,8 +24,9 @@
    =========================================================================== */
 
 import { leer, guardar } from './store.js';
-import { emitir } from './bus.js';
+import { emitir, on } from './bus.js';
 import * as sesion from './sesion.js';
+import { unidadDe } from './temario.js';
 
 export const norma = t => String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
   .toLowerCase().replace(/[^a-z0-9ñ]+/g, ' ').replace(/\s+/g, ' ').trim();
@@ -86,6 +87,48 @@ export function asignaturaDeTitulo(titulo, asignaturas) {
   return primero.a.id;
 }
 
+/* ---------------------------- tema de cada bloque -------------------------
+   Qué tema estudió se deduce del título cuando lo dice y, si no, se le
+   pregunta (hojas "¿Qué tema era?" de Estudiar). Nunca se adivina con poca
+   base: un título como "Estudiar historia" no dice el tema, y asignar uno al
+   azar haría mentir a las horas por tema. */
+const SIN_VALOR = new Set(['para', 'sobre', 'entre', 'desde', 'hasta', 'como', 'esto', 'estas', 'estos', 'tema', 'bloque',
+  'unidad', 'repasar', 'estudiar', 'apuntes', 'hacer', 'cuaderno', 'resumen', 'esquema', 'ejercicios', 'texto', 'ficha', 'fichas']);
+
+/** El tema (id) que nombra el título, o null si no lo dice con claridad:
+    1. un número explícito ("tema 3", "bloque 2") que identifica UN tema;
+    2. un apartado ("A3") cuando el temario va por apartados;
+    3. una palabra distintiva de UN solo tema ("Platón", "romanización"). */
+export function temaDeTitulo(titulo, temas, nombreAsignatura = '') {
+  const lista = (temas || []).filter(t => t?.id && t.nombre);
+  if (!lista.length) return null;
+  const unico = c => (c.length === 1 ? c[0].id : null);
+  const t = norma(titulo);
+
+  const m = /\b(?:tema|bloque|unidad|ud|leccion|capitulo)\s*(\d{1,2})\b/.exec(t);
+  if (m) {
+    const id = unico(lista.filter(x => { const u = unidadDe(x.nombre); return u && !u.sec && u.num === +m[1]; }));
+    if (id) return id;
+  }
+  const a = /\b([A-E])\s?(\d{1,2})\b/.exec(String(titulo || ''));
+  if (a) {
+    const id = unico(lista.filter(x => { const u = unidadDe(x.nombre); return u && u.sec === a[1] && u.num === +a[2]; }));
+    if (id) return id;
+  }
+  const palabras = new Set(t.split(' '));
+  // Las palabras del nombre de la propia asignatura ("filosofía" en Historia de
+  // la Filosofía) están en todos los títulos y no distinguen un tema de otro.
+  const deLaAsignatura = new Set(norma(nombreAsignatura).split(' '));
+  const fichas = lista.map(x => ({
+    id: x.id,
+    claves: norma(String(x.nombre).replace(/^\s*(?:tema|bloque|unidad|ud|lecci[oó]n|cap[ií]tulo)\s*\d+[.:)]?\s*|^[A-Z]\d+[.:)]\s*/i, ''))
+      .split(' ').filter(w => w.length >= 5 && !SIN_VALOR.has(w) && !deLaAsignatura.has(w)),
+  }));
+  const cuantos = new Map();
+  for (const f of fichas) for (const w of new Set(f.claves)) cuantos.set(w, (cuantos.get(w) || 0) + 1);
+  return unico(fichas.filter(f => f.claves.some(w => cuantos.get(w) === 1 && palabras.has(w))));
+}
+
 export const esLogistica = titulo => RE_LOGISTICA.test(norma(titulo));
 export const esParticular = titulo => /\bparticular(es)?\b/.test(norma(titulo));
 
@@ -110,11 +153,14 @@ const DIAS_PREGUNTA = 7;
 /** Función pura: bloques + lo que él ha decidido -> sesiones y preguntas.
     `ajustes` = { reglas: {tituloNormalizado: asignaturaId | 'no'},
                   decisiones: {idBloque: {hecho?: bool, asignaturaId?: id | 'no'}} } */
-export function sesionesDeBloques(bloques, asignaturas, ajustes = {}, ahora = Date.now()) {
+const DIAS_TEMA = 14;
+
+export function sesionesDeBloques(bloques, asignaturas, ajustes = {}, ahora = Date.now(), temas = []) {
   const reglas = ajustes.reglas || {};
   const decisiones = ajustes.decisiones || {};
   const existe = new Set((asignaturas || []).filter(a => a.tipo !== 'bloque').map(a => a.id));
-  const resultado = { sesiones: [], pendientes: [], dudosos: [] };
+  const resultado = { sesiones: [], pendientes: [], dudosos: [], temaPendientes: [] };
+  const temasDe = id => (temas || []).filter(t => t.asignaturaId === id);
   const hechas = [];
 
   for (const b of bloques || []) {
@@ -134,7 +180,21 @@ export function sesionesDeBloques(bloques, asignaturas, ajustes = {}, ahora = Da
     const hecho = d.hecho ?? (b.estado === 'hecha');
     const reciente = ahora - Date.parse(b.fin) <= DIAS_PREGUNTA * 864e5;
 
-    if (clase === 'estudio' && hecho) hechas.push({ b, asignaturaId });
+    if (clase === 'estudio' && hecho) {
+      // El tema: lo que él eligió ("ninguno" = varios / sin tema concreto, no se
+      // vuelve a preguntar) o lo que dice el título. Las particulares son clases,
+      // no se pregunta por su tema.
+      const propios = temasDe(asignaturaId);
+      let temaId = null, preguntar = false;
+      if (d.temaId === 'ninguno') temaId = null;
+      else if (d.temaId && propios.some(t => t.id === d.temaId)) temaId = d.temaId;
+      else {
+        temaId = temaDeTitulo(b.titulo, propios, (asignaturas || []).find(a => a.id === asignaturaId)?.nombre || '');
+        preguntar = !temaId && propios.length > 0 && b.fuente !== 'particular' && ahora - Date.parse(b.fin) <= DIAS_TEMA * 864e5;
+      }
+      hechas.push({ b, asignaturaId, temaId });
+      if (preguntar) resultado.temaPendientes.push({ ...b, asignaturaId });
+    }
     else if (clase === 'estudio' && d.hecho === undefined && reciente) resultado.pendientes.push({ ...b, asignaturaId });
     else if (clase === 'dudoso' && hecho) resultado.dudosos.push(b);
   }
@@ -142,7 +202,7 @@ export function sesionesDeBloques(bloques, asignaturas, ajustes = {}, ahora = Da
   // El tiempo común de dos bloques hechos que se pisan se cuenta una vez.
   hechas.sort((x, y) => x.b.inicio.localeCompare(y.b.inicio));
   let cubierto = 0;
-  for (const { b, asignaturaId } of hechas) {
+  for (const { b, asignaturaId, temaId } of hechas) {
     const ini = Date.parse(b.inicio), fin = Date.parse(b.fin);
     const minutos = Math.round((fin - Math.max(ini, cubierto)) / 60000);
     cubierto = Math.max(cubierto, fin);
@@ -151,7 +211,7 @@ export function sesionesDeBloques(bloques, asignaturas, ajustes = {}, ahora = Da
       id: 'cal-' + b.id,
       fecha: diaDe(b.inicio),
       asignaturaId,
-      temaId: null,
+      temaId,
       tipo: tipoDeTitulo(b.titulo),
       minutos,
       resultado: 'regular',
@@ -177,7 +237,7 @@ export const cache = () => ({ bloques: [], ultima: null, enviado: null, error: n
 /** Lo que hay que enseñar ahora: preguntas pendientes y estado de la lectura. */
 export function estado() {
   const c = cache();
-  const r = sesionesDeBloques(c.bloques, leer('asignaturas', []), ajustes());
+  const r = sesionesDeBloques(c.bloques, leer('asignaturas', []), ajustes(), Date.now(), leer('temas', []));
   return { ...c, ...r, horas: r.sesiones.reduce((s, x) => s + x.minutos, 0) / 60 };
 }
 
@@ -187,10 +247,10 @@ export function estado() {
 function aplicar() {
   const c = cache();
   if (!c.ultima) return false;
-  const nuevas = sesionesDeBloques(c.bloques, leer('asignaturas', []), ajustes()).sesiones;
+  const nuevas = sesionesDeBloques(c.bloques, leer('asignaturas', []), ajustes(), Date.now(), leer('temas', [])).sesiones;
   const todas = leer('sesiones', []);
   const viejas = todas.filter(s => s.origen === 'calendario');
-  const firma = l => JSON.stringify(l.map(s => [s.id, s.fecha, s.asignaturaId, s.tipo, s.minutos]).sort());
+  const firma = l => JSON.stringify(l.map(s => [s.id, s.fecha, s.asignaturaId, s.temaId || null, s.tipo, s.minutos]).sort());
   if (firma(viejas) === firma(nuevas)) return false;
   guardar('sesiones', [...todas.filter(s => s.origen !== 'calendario'), ...nuevas]);
   emitir('local-cambio');
@@ -248,3 +308,14 @@ export function asignar(idBloque, asignaturaId, recordar) {
   const b = cache().bloques.find(x => x.id === idBloque);
   decidir(idBloque, { asignaturaId }, recordar && b ? { titulo: b.titulo, valor: asignaturaId } : null);
 }
+
+/** "¿Qué tema era?" — temaId, o 'ninguno' (varios / sin tema concreto). */
+export const asignarTema = (idBloque, temaId) => decidir(idBloque, { temaId });
+
+/* Si cambian los temas o las asignaturas (se sube un temario, se borra una
+   asignatura…), lo que dicen los títulos de los bloques se vuelve a leer: un
+   "Repasar Platón" empieza a colgar del tema Platón en cuanto existe. aplicar()
+   solo escribe si algo cambia, así que no hay bucle con sus propios avisos. */
+on('datos-cambio', cambiadas => {
+  if (Array.isArray(cambiadas) && (cambiadas.includes('temas') || cambiadas.includes('asignaturas') || cambiadas.includes('todo'))) aplicar();
+});

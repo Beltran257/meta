@@ -966,3 +966,25 @@
 .subir-temario .lista.suelta { margin: 0; padding: 0; list-style: none; }
 .marca-guardar { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--texto2); }
 .ap-error .t2 { color: var(--mal); }
+
+/* Ficha del examen (vista Exámenes) */
+.fx-lista { background: var(--sup); border: 1px solid var(--borde); border-radius: var(--r); overflow: hidden; }
+.fx-tema { display: grid; grid-template-columns: 30px 1fr auto; gap: var(--e2) var(--e3); align-items: center;
+  padding: 10px var(--e3); border-bottom: 1px solid var(--borde); }
+.fx-tema:last-child { border-bottom: 0; }
+.fx-tema .progreso { grid-column: 2 / -1; margin-top: -2px; }
+.fx-tema.fuera .fx-nombre, .fx-tema.fuera .fx-dom, .fx-tema.fuera .progreso { opacity: .4; }
+.fx-entra { width: 26px; height: 26px; border-radius: var(--r2); border: 1.5px solid var(--borde2); display: grid; place-items: center; color: transparent; }
+.fx-entra[aria-pressed='true'] { background: var(--acento); border-color: var(--acento); color: var(--sobre-acento); }
+.fx-entra svg { width: 15px; height: 15px; }
+.fx-nombre { min-width: 0; display: block; }
+.fx-nombre .n { display: block; font-size: 13.5px; font-weight: 500; line-height: 1.35; }
+.fx-meta { display: flex; gap: 8px; flex-wrap: wrap; font-size: 11.5px; color: var(--apagado); margin-top: 2px; }
+.fx-ap { font-size: 11.5px; color: var(--acento); }
+.fx-dom { display: flex; align-items: center; gap: 4px; }
+.fx-dom button { width: 30px; height: 30px; border-radius: var(--r2); border: 1px solid var(--borde); font-size: 16px; line-height: 1; color: var(--texto2); }
+.fx-dom button:hover { border-color: var(--borde2); color: var(--texto); }
+.fx-dom .pc { min-width: 38px; text-align: center; font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.fx-aps { grid-column: 2 / -1; }
+.fx-aps .fila { padding: 6px 0; border: 0; }
+.fx { min-width: 0; }

@@ -19,8 +19,6 @@ export const CLAVES = {
   tareas:       { k: 'meta.tareas.v1',       desc: 'Tareas Y exámenes con fecha (el tipo los distingue)' },
   notas:        { k: 'meta.notas.v1',        desc: 'Calificaciones por asignatura y evaluación, con objetivo' },
   sesiones:     { k: 'meta.sesiones.v2',     desc: 'Sesiones de estudio registradas (asignatura, tema, minutos, resultado)' },
-  flashcards:   { k: 'meta.flashcards.v2',   desc: 'Tarjetas de repaso por tema, con su caja de repaso espaciado' },
-  tests:        { k: 'meta.tests.v2',        desc: 'Tests y simulacros hechos, con aciertos y fallos' },
   notasRapidas: { k: 'meta.rapidas.v2',      desc: 'Notas rápidas: captura al vuelo, sin estructura' },
   apuntesMeta:  { k: 'meta.apuntesMeta.v1',  desc: 'Apuntes (fotos y PDF: copia rápida en IndexedDB, y en la cuenta si hay sesión)' },
   calendario:   { k: 'meta.calendario.v1',   desc: 'Lo decidido sobre los bloques de estudio del calendario: qué asignatura es, si se hizo, reglas por título' },
@@ -43,7 +41,7 @@ export const LISTA_CLAVES = Object.values(CLAVES).map(c => c.k);
    que usa el enlace de carpeta (tools/enlace-carpeta.mjs). */
 export const CLAVES_SINCRONIZABLES = [
   'perfil', 'asignaturas', 'horario', 'temas', 'tareas', 'notas',
-  'sesiones', 'flashcards', 'tests', 'notasRapidas', 'apuntesMeta', 'calendario',
+  'sesiones', 'notasRapidas', 'apuntesMeta', 'calendario',
 ];
 
 /* Por qué los exámenes están dentro de 'tareas' y no en su propia clave:
@@ -53,4 +51,9 @@ export const CLAVES_SINCRONIZABLES = [
    tipo 'examen' y campos propios (temaIds, dificultad). */
 export const TIPOS_TAREA = ['tarea', 'examen'];
 export const ESTADOS_TAREA = ['pendiente', 'haciendo', 'hecha'];
-export const TIPOS_SESION = ['teoria', 'ejercicios', 'repaso', 'flashcards', 'test', 'simulacro', 'clase'];
+export const TIPOS_SESION = ['teoria', 'ejercicios', 'repaso', 'simulacro', 'clase'];
+
+/* Claves que ya no existen pero pueden quedar en un aparato: flashcards y tests
+   se quitaron en noviembre de 2026. borrarTodo() y el arranque las limpian, para
+   que "borrar todo" no deje nada atrás. */
+export const CLAVES_OBSOLETAS = ['meta.flashcards.v2', 'meta.tests.v2'];

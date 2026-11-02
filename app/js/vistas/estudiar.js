@@ -1,11 +1,12 @@
 /* ===========================================================================
-   ESTUDIAR — sesiones, repaso, flashcards y tests.
+   ESTUDIAR — lo que llega del calendario, la semana y el cronómetro.
 
    Desde octubre de 2026 las horas entran SOLAS desde el calendario (ver
    core/calendario.js): él planifica en Google Tasks y marca lo que hace. Por
    eso lo primero aquí es lo que llega del calendario y lo poco que hay que
    contestar ("¿lo hiciste?", "¿de qué asignatura es?"). El cronómetro, las
-   flashcards y los tests siguen, pero debajo: son lo secundario.
+   cronómetro sigue, pero debajo: es lo secundario. Los tests y las flashcards
+   se quitaron (noviembre 2026): se usan fuera, con NotebookLM.
 
    Todo lo que pasa aquí ALIMENTA al resto: cada sesión suma horas, cada
    repaso y cada test mueven el dominio del tema, y ese dominio es lo que hace
@@ -20,15 +21,13 @@ import { escapa, hoyLocal, duracion, diasHasta, sumaDias, lunesDe, desdeCuando, 
 import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { listaTemas, temaDe, temasDe, registrarRepaso, ajustarDominio, tocaRepasar } from '../core/temas.js';
 import * as motor from '../core/motor.js';
-import * as ia from '../core/ia.js';
 import * as calendario from '../core/calendario.js';
 
 const nuevoId = p => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
 const TIPOS = [
   ['teoria', 'Teoría'], ['ejercicios', 'Ejercicios'], ['repaso', 'Repaso'],
-  ['flashcards', 'Flashcards'], ['test', 'Test'], ['simulacro', 'Simulacro'],
-  ['clase', 'Clase particular'],
+  ['simulacro', 'Simulacro'], ['clase', 'Clase particular'],
 ];
 
 let raiz = null;
@@ -98,15 +97,10 @@ function bloqueSesion() {
         <button class="boton" data-accion="sesion-terminar">Terminar</button>
       </div>
     </div>
-    ${sesion.tipo === 'flashcards' && sesion.temaId ? `
-      <div class="acciones" data-mt-grande>
-        <button class="boton fantasma ancho" data-accion="flash-abrir" data-tema="${escapa(sesion.temaId)}">Abrir flashcards de este tema</button>
-      </div>` : ''}
-    ${(sesion.tipo === 'test' || sesion.tipo === 'simulacro') && sesion.temaId ? `
-      <div class="acciones" data-mt-grande>
-        <button class="boton fantasma ancho" data-accion="test-abrir" data-tema="${escapa(sesion.temaId)}">Hacer un test de este tema</button>
-      </div>` : ''}`;
+    `;
 }
+
+accion('ir-asignatura', d => emitir('ir', { id: 'asignaturas', asignaturaId: d.id }));
 
 accion('sesion-pausa', () => {
   if (!sesion) return;
@@ -324,7 +318,7 @@ accion('repaso-hacer', d => {
   hoja({
     titulo: `Repaso: ${t.nombre}`,
     cuerpo: `
-      <p class="parrafo">Repásalo con tus apuntes o tus flashcards y luego dinos qué tal.
+      <p class="parrafo">Repásalo con tus apuntes y luego dinos qué tal.
       Es lo que decide cuándo te lo volverá a poner META.</p>
       <div class="factor" data-mt-grande>
         <span class="n">Dominio ahora</span><span class="v">${t.dominio || 0}%</span>
@@ -343,312 +337,6 @@ accion('repaso-res', d => {
   render();
   if (t) aviso(`Dominio ${t.dominio}% · siguiente repaso el ${t.proximoRepaso}`);
 });
-
-/* =============================== FLASHCARDS ================================ */
-
-const listaFlash = () => leer('flashcards', []);
-
-function guardarFlash(l) {
-  guardar('flashcards', l);
-  emitir('local-cambio');
-  emitir('datos-cambio', ['flashcards']);
-}
-
-const flashDe = temaId => listaFlash().filter(f => f.temaId === temaId);
-
-/** Tarjetas que tocan hoy (caja 1 = todos los días, caja 4 = cada 2 semanas). */
-const DIAS_CAJA = [1, 2, 4, 8, 15];
-const flashPendientes = temaId =>
-  flashDe(temaId).filter(f => !f.proximo || f.proximo <= hoyLocal());
-
-accion('flash-abrir', d => abrirFlash(d.tema));
-
-let mazo = [], indice = 0, volteada = false;
-
-function abrirFlash(temaId) {
-  const t = temaDe(temaId);
-  if (!t) return;
-  mazo = flashPendientes(temaId);
-  indice = 0; volteada = false;
-
-  if (!mazo.length) {
-    const total = flashDe(temaId).length;
-    return hoja({
-      titulo: `Flashcards · ${t.nombre}`,
-      cuerpo: total
-        ? `<p class="parrafo">Hoy no toca ninguna: las ${total} tarjetas de este tema
-           están al día. Vuelve cuando toque, o crea más.</p>`
-        : `<p class="parrafo">Este tema todavía no tiene tarjetas.</p>`,
-      pie: `<button class="boton fantasma" data-accion="flash-nueva" data-tema="${escapa(temaId)}">Crear a mano</button>
-            <button class="boton" data-accion="flash-generar" data-tema="${escapa(temaId)}">${icono('chispa')} Generar con META AI</button>`,
-    });
-  }
-  pintarFlash(t);
-}
-
-function pintarFlash(t) {
-  const f = mazo[indice];
-  if (!f) {
-    return hoja({
-      titulo: 'Tanda terminada',
-      cuerpo: `<p class="parrafo">Has repasado ${mazo.length} tarjetas de "${escapa(t.nombre)}".</p>`,
-      pie: `<button class="boton" data-accion="cerrar-hoja">Cerrar</button>`,
-    });
-  }
-  hoja({
-    titulo: `${t.nombre} · ${indice + 1}/${mazo.length}`,
-    cuerpo: `
-      <button class="tarjeta-flash" data-accion="flash-voltear">
-        <span class="lado">${volteada ? 'Respuesta' : 'Pregunta'}</span>
-        <span class="cara">${escapa(volteada ? f.reverso : f.anverso)}</span>
-        ${!volteada ? '<span class="pista" data-mt-grande>Toca para ver la respuesta</span>' : ''}
-      </button>`,
-    pie: volteada ? `
-      <button class="boton fantasma" data-accion="flash-res" data-r="mal">Fallé</button>
-      <button class="boton fantasma" data-accion="flash-res" data-r="regular">Dudé</button>
-      <button class="boton" data-accion="flash-res" data-r="bien">La sabía</button>`
-      : `<button class="boton ancho" data-accion="flash-voltear">Ver respuesta</button>`,
-  });
-}
-
-accion('flash-voltear', () => {
-  if (!mazo[indice]) return;
-  volteada = !volteada;
-  pintarFlash(temaDe(mazo[indice].temaId));
-});
-
-accion('flash-res', d => {
-  const f = mazo[indice];
-  if (!f) return;
-  const caja = d.r === 'bien' ? Math.min(DIAS_CAJA.length - 1, (f.caja || 0) + 1)
-    : d.r === 'regular' ? (f.caja || 0)
-    : 0;
-  guardarFlash(listaFlash().map(x => x.id === f.id
-    ? { ...x, caja, proximo: sumaDias(hoyLocal(), DIAS_CAJA[caja]), visto: Date.now() } : x));
-
-  indice++;
-  volteada = false;
-  const t = temaDe(f.temaId);
-  // Una tanda completa de flashcards también mueve el dominio del tema.
-  if (indice >= mazo.length && t) {
-    const aciertos = 1;
-    ajustarDominio(t.id, d.r === 'bien' ? 85 : d.r === 'regular' ? 60 : 35, 0.15 * aciertos);
-  }
-  pintarFlash(t);
-});
-
-accion('flash-nueva', d => {
-  const t = temaDe(d.tema);
-  hoja({
-    titulo: 'Nueva tarjeta',
-    cuerpo: `
-      <div class="campo">
-        <label for="fl-a">Pregunta</label>
-        <textarea id="fl-a" placeholder="¿Qué es una derivada?"></textarea>
-      </div>
-      <div class="campo">
-        <label for="fl-b">Respuesta</label>
-        <textarea id="fl-b"></textarea>
-      </div>
-      <div class="pista">Tema: ${escapa(t?.nombre || '')}</div>`,
-    pie: `<button class="boton fantasma" data-accion="cerrar-hoja">Cancelar</button>
-          <button class="boton" data-accion="flash-guardar" data-tema="${escapa(d.tema)}">Guardar</button>`,
-    alAbrir(v) { enfocar(v, '#fl-a'); },
-  });
-});
-
-accion('flash-guardar', (d, el) => {
-  const v = el.closest('.hoja');
-  const anverso = v.querySelector('#fl-a').value.trim();
-  const reverso = v.querySelector('#fl-b').value.trim();
-  if (!anverso || !reverso) return aviso('Rellena las dos caras', 'mal');
-  guardarFlash([...listaFlash(), {
-    id: nuevoId('f'), temaId: d.tema, anverso, reverso, caja: 0, proximo: hoyLocal(), creado: Date.now(),
-  }]);
-  cerrarHoja();
-  render();
-  aviso('Tarjeta creada');
-});
-
-/* --------------------- generación con META AI (de verdad) ------------------
-   Se le pide al modelo un formato de líneas, no JSON: los modelos abiertos
-   devuelven JSON roto con facilidad, y una línea "P: … || R: …" se parsea sin
-   ambigüedad. Si no sale nada aprovechable se dice, no se inventa. */
-
-function parseaTarjetas(texto) {
-  return String(texto || '').split('\n')
-    .map(l => l.trim())
-    .filter(l => /\|\|/.test(l))
-    .map(l => {
-      const [a, b] = l.split('||');
-      return {
-        anverso: a.replace(/^[-*\d.\s]*P\s*:?\s*/i, '').trim(),
-        reverso: b.replace(/^\s*R\s*:?\s*/i, '').trim(),
-      };
-    })
-    .filter(x => x.anverso.length > 3 && x.reverso.length > 1)
-    .slice(0, 12);
-}
-
-accion('flash-generar', async (d, el) => {
-  const t = temaDe(d.tema);
-  if (!t) return;
-  el.disabled = true;
-  const a = asignaturaDe(t.asignaturaId);
-  try {
-    const r = await ia.preguntar({
-      pregunta: `Crea 8 tarjetas de repaso sobre "${t.nombre}"${a ? ` de ${a.nombre}` : ''}, ` +
-        `nivel Bachillerato. UNA POR LÍNEA y exactamente con este formato, sin nada más:\n` +
-        `P: pregunta || R: respuesta breve`,
-      texto: textoDeApuntes(t),
-    });
-    const tarjetas = parseaTarjetas(r.texto);
-    if (!tarjetas.length) throw new Error('formato');
-    guardarFlash([...listaFlash(), ...tarjetas.map(x => ({
-      id: nuevoId('f'), temaId: t.id, ...x, caja: 0, proximo: hoyLocal(), creado: Date.now(), origen: 'ia',
-    }))]);
-    cerrarHoja();
-    render();
-    aviso(`${tarjetas.length} tarjetas creadas con META AI`);
-  } catch (e) {
-    aviso(e.message === 'formato'
-      ? 'La IA no ha devuelto tarjetas usables. Prueba otra vez o créalas a mano.'
-      : (e.message || 'La IA no ha podido responder'), 'mal');
-  } finally {
-    el.disabled = false;
-  }
-});
-
-/** Texto de los apuntes de ese tema, si los hay: es lo que hace que la IA
-    genere sobre TU temario y no sobre el tema en abstracto. No solo los
-    escritos a mano (tipo 'texto'): una foto o un PDF también trae `texto`
-    en cuanto el servidor termina de leerlo (ver worker/ocr.js) — antes esta
-    función solo miraba `tipo === 'texto'`, así que una foto de apuntes
-    nunca llegaba a la IA aunque su texto ya estuviera guardado. */
-function textoDeApuntes(tema) {
-  const apuntes = leer('apuntesMeta', [])
-    .filter(a => a.texto && (a.temaId === tema.id ||
-      (a.asignaturaId === tema.asignaturaId && a.titulo?.toLowerCase().includes(tema.nombre.toLowerCase()))))
-    .map(a => a.texto || '')
-    .join('\n\n');
-  return apuntes.slice(0, 3500) || null;
-}
-
-/* ================================= TESTS =================================== */
-
-const listaTests = () => leer('tests', []);
-
-function parseaPreguntas(texto) {
-  const bloques = String(texto || '').split('\n').map(l => l.trim()).filter(l => /\|\|/.test(l));
-  return bloques.map(l => {
-    const partes = l.split('||').map(x => x.trim());
-    const enunciado = partes[0].replace(/^[-*\d.\s]*P\s*:?\s*/i, '').trim();
-    const opciones = partes.slice(1, 5).map(x => x.replace(/^[A-D][).]\s*/i, '').trim());
-    const okRaw = partes.find(x => /^OK\s*:/i.test(x));
-    const letra = okRaw ? okRaw.split(':')[1].trim().toUpperCase()[0] : null;
-    const correcta = letra ? 'ABCD'.indexOf(letra) : -1;
-    return { enunciado, opciones: opciones.filter(o => o && !/^OK\s*:/i.test(o)), correcta };
-  }).filter(p => p.enunciado.length > 5 && p.opciones.length >= 3 && p.correcta >= 0 && p.correcta < p.opciones.length)
-    .slice(0, 10);
-}
-
-let test = null;   // {temaId, preguntas, respuestas, i}
-
-accion('test-abrir', async (d, el) => {
-  const t = temaDe(d.tema);
-  if (!t) return;
-  if (el) el.disabled = true;
-  const a = asignaturaDe(t.asignaturaId);
-  hoja({ titulo: 'Preparando el test', cuerpo: '<div class="cargando"><div class="giro"></div></div>' });
-  try {
-    const r = await ia.preguntar({
-      pregunta: `Escribe 6 preguntas tipo test sobre "${t.nombre}"${a ? ` de ${a.nombre}` : ''}, ` +
-        `nivel Bachillerato, con 4 opciones cada una. UNA POR LÍNEA y exactamente así, sin nada más:\n` +
-        `P: enunciado || A) opción || B) opción || C) opción || D) opción || OK: B`,
-      texto: textoDeApuntes(t),
-    });
-    const preguntas = parseaPreguntas(r.texto);
-    if (!preguntas.length) throw new Error('formato');
-    test = { temaId: t.id, preguntas, respuestas: [], i: 0 };
-    pintarTest();
-  } catch (e) {
-    hoja({
-      titulo: 'No ha salido',
-      cuerpo: `<p class="parrafo">${escapa(e.message === 'formato'
-        ? 'La IA no ha devuelto preguntas usables esta vez. Puedes volver a intentarlo.'
-        : (e.message || 'La IA no ha podido responder ahora mismo.'))}</p>`,
-      pie: `<button class="boton fantasma" data-accion="cerrar-hoja">Cerrar</button>
-            <button class="boton" data-accion="test-abrir" data-tema="${escapa(d.tema)}">Reintentar</button>`,
-    });
-  } finally {
-    if (el) el.disabled = false;
-  }
-});
-
-function pintarTest() {
-  const p = test.preguntas[test.i];
-  if (!p) return cerrarTest();
-  const respondida = test.respuestas[test.i] != null;
-  hoja({
-    titulo: `Test · ${test.i + 1}/${test.preguntas.length}`,
-    cuerpo: `
-      <p class="parrafo"><b>${escapa(p.enunciado)}</b></p>
-      <div data-mt-grande>
-        ${p.opciones.map((o, i) => {
-          let clase = '';
-          if (respondida) {
-            if (i === p.correcta) clase = 'bien';
-            else if (i === test.respuestas[test.i]) clase = 'mal';
-          }
-          return `<button class="opcion-test ${clase}" data-accion="test-responder" data-i="${i}">
-            ${'ABCD'[i]}. ${escapa(o)}</button>`;
-        }).join('')}
-      </div>`,
-    pie: respondida
-      ? `<button class="boton ancho" data-accion="test-siguiente">${test.i + 1 < test.preguntas.length ? 'Siguiente' : 'Ver resultado'}</button>`
-      : `<button class="boton fantasma" data-accion="cerrar-hoja">Dejarlo</button>`,
-  });
-}
-
-accion('test-responder', d => {
-  // Sin test en curso (la hoja de resultado ya cerró la sesión, o quedó un
-  // clic en cola de un botón ya retirado del DOM): no hay nada que anotar.
-  if (!test || test.respuestas[test.i] != null) return;
-  test.respuestas[test.i] = Number(d.i);
-  pintarTest();
-});
-
-accion('test-siguiente', () => { if (!test) return; test.i++; pintarTest(); });
-
-function cerrarTest() {
-  const aciertos = test.respuestas.filter((r, i) => r === test.preguntas[i].correcta).length;
-  const total = test.preguntas.length;
-  const porcentaje = Math.round((aciertos / total) * 100);
-
-  guardar('tests', [...listaTests(), {
-    id: nuevoId('q'), temaId: test.temaId, fecha: hoyLocal(),
-    aciertos, total, creado: Date.now(),
-  }]);
-  // Un test es la señal más fiable de si te lo sabes: pesa más que una sesión.
-  ajustarDominio(test.temaId, porcentaje, 0.5);
-  emitir('local-cambio');
-  emitir('datos-cambio', ['tests']);
-
-  const t = temaDe(test.temaId);
-  hoja({
-    titulo: 'Resultado',
-    cuerpo: `
-      <div class="metrica">
-        <div class="v">${aciertos} / ${total}</div>
-        <div class="e">${porcentaje}% de aciertos</div>
-      </div>
-      <p class="parrafo" data-mt-grande>El dominio de "${escapa(t?.nombre || '')}" pasa a
-      ${temaDe(test.temaId)?.dominio || 0}%.</p>`,
-    pie: `<button class="boton" data-accion="cerrar-hoja">Hecho</button>`,
-  });
-  test = null;
-  render();
-}
 
 /* ========================== DESDE EL CALENDARIO =========================== */
 
@@ -687,6 +375,7 @@ function bloqueCalendario() {
   const nombreAsig = id => asignaturaDe(id)?.nombre || '';
   const pendientes = e.pendientes.slice().reverse();
   const dudosos = e.dudosos.slice().reverse();
+  const sinTema = e.temaPendientes.slice().reverse();
   return `
     <div class="tarjeta cal">
       <div class="seccion-cab"><h2>Desde tu calendario</h2></div>
@@ -703,6 +392,24 @@ function bloqueCalendario() {
               <span class="der acciones">
                 <button class="boton chico sutil" data-accion="cal-no" data-id="${escapa(b.id)}">No</button>
                 <button class="boton chico" data-accion="cal-si" data-id="${escapa(b.id)}">Sí</button>
+              </span>
+            </div>`).join('')}
+        </div>` : ''}
+      ${sinTema.length ? `
+        <h3 class="cal-sub">¿Qué tema era? <span class="apag">Para saber cuánto llevas de cada tema${sinTema.length > 6 ? ` · ${sinTema.length} sin contar, van los 6 últimos` : ''}</span></h3>
+        <div class="lista">
+          ${sinTema.slice(0, 6).map(b => `
+            <div class="fila cal-dudoso">
+              <span class="izq">
+                <span class="t1">${escapa(b.titulo)}</span>
+                <span class="t2">${escapa(nombreAsig(b.asignaturaId))} · ${escapa(cuandoBloque(b))}</span>
+              </span>
+              <span class="der">
+                <select data-cal-tema="${escapa(b.id)}" aria-label="Tema de ${escapa(b.titulo)}">
+                  <option value="">Elegir…</option>
+                  ${temasDe(b.asignaturaId).map(t => `<option value="${escapa(t.id)}">${escapa(t.nombre)}</option>`).join('')}
+                  <option value="ninguno">Varios / sin tema concreto</option>
+                </select>
               </span>
             </div>`).join('')}
         </div>` : ''}
@@ -809,6 +516,11 @@ function render() {
     ${bloqueUltimas()}`;
 
   pintaEstilos(raiz);
+  raiz.querySelectorAll('[data-cal-tema]').forEach(sel => sel.addEventListener('change', () => {
+    if (!sel.value) return;
+    calendario.asignarTema(sel.dataset.calTema, sel.value);
+    aviso(sel.value === 'ninguno' ? 'Sin tema concreto' : 'Apuntado en su tema');
+  }));
   raiz.querySelectorAll('[data-cal-asignar]').forEach(sel => sel.addEventListener('change', () => {
     if (!sel.value) return;
     calendario.asignar(sel.dataset.calAsignar, sel.value, true);
@@ -833,8 +545,7 @@ function bloqueTemasFlojos() {
                 <span class="t2">${a ? escapa(a.nombre) : ''}</span>
               </span>
               <span class="der acciones">
-                <button class="boton chico sutil" data-accion="flash-abrir" data-tema="${escapa(t.id)}">Flashcards</button>
-                <button class="boton chico fantasma" data-accion="test-abrir" data-tema="${escapa(t.id)}">Test</button>
+                <button class="boton chico fantasma" data-accion="ir-asignatura" data-id="${escapa(t.asignaturaId)}">Ver</button>
               </span>
             </div>`;
         }).join('')}

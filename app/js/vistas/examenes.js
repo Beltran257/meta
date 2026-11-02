@@ -1,17 +1,18 @@
 /* ===========================================================================
    EXÁMENES — cuánto falta y, sobre todo, cómo lo llevas.
 
-   La preparación no es una barra decorativa: es la media del dominio de los
-   temas que entran, y el dominio se mueve solo con los repasos, los tests y
-   las sesiones. Si un examen no tiene temario apuntado, META lo dice en vez de
-   enseñar un porcentaje inventado.
+   La preparación no es una barra decorativa: es la media de lo que él mismo
+   estima que se sabe de cada tema que entra (el porcentaje de cada tema lo pone
+   él). Si un examen no tiene temario apuntado, META lo dice en vez de enseñar
+   un porcentaje inventado.
    =========================================================================== */
 
 import { hoja, cerrarHoja, aviso, pintaEstilos, icono, barra } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
-import { escapa, fechaLarga, fechaCorta, diaSemana, diasHasta, textoCountdown, duracion } from '../core/fmt.js';
+import { escapa, fechaLarga, fechaCorta, diaSemana, diasHasta, textoCountdown, duracion, hoyLocal, sumaDias } from '../core/fmt.js';
+import { leer } from '../core/store.js';
 import { asignaturaDe, contenido } from '../core/asignaturas.js';
-import { temasDe, crearTema } from '../core/temas.js';
+import { temasDe, temaDe, crearTema, editarTema } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import * as sesion from '../core/sesion.js';
 import { formTarea, guardarTareas } from './tareas.js';
@@ -61,64 +62,133 @@ function tarjetaExamen(e) {
     </div>`;
 }
 
-/* --------------------------------- detalle --------------------------------- */
+/* ------------------------------ ficha del examen ---------------------------
+   Es donde se prepara un examen: qué entra, cuánto sabes de cada tema (el
+   porcentaje lo pones tú), cuánto le has dedicado y qué apuntes tienes de él.
 
-function detalle(e) {
+   Los cambios se aplican EN SU SITIO, sin volver a pintar la hoja: con un
+   temario de 50 temas, repintar al tocar un porcentaje te devolvía arriba del
+   todo. Por eso las acciones tocan el DOM y recalculan el resumen. */
+
+const examenDe = id => motor.listaTareas().find(x => x.id === id);
+const horasTxt = min => (min >= 60 ? `${(Math.round(min / 6) / 10).toLocaleString('es-ES')} h` : `${min} min`);
+
+function filaTema(t, entra, min, apuntes) {
+  const d = t.dominio || 0;
+  return `
+    <div class="fx-tema ${entra ? '' : 'fuera'}" data-tema="${escapa(t.id)}">
+      <button class="fx-entra" type="button" aria-pressed="${entra}" data-accion="fx-entra" data-id="${escapa(t.id)}"
+              aria-label="Entra en el examen" title="Entra en el examen">${icono('check')}</button>
+      <span class="fx-nombre">
+        <span class="n">${escapa(t.nombre)}</span>
+        <span class="fx-meta">
+          ${min ? `<span>${escapa(horasTxt(min))} dedicadas</span>` : '<span class="apag">sin horas</span>'}
+          ${apuntes.length ? `<button class="fx-ap" type="button" data-accion="fx-apuntes" data-id="${escapa(t.id)}">${apuntes.length} ${apuntes.length === 1 ? 'apunte' : 'apuntes'}</button>` : ''}
+        </span>
+      </span>
+      <span class="fx-dom">
+        <button type="button" data-accion="fx-dom" data-id="${escapa(t.id)}" data-d="-10" aria-label="Menos">−</button>
+        <span class="pc">${d}%</span>
+        <button type="button" data-accion="fx-dom" data-id="${escapa(t.id)}" data-d="10" aria-label="Más">+</button>
+      </span>
+      ${barra(d, claseDe(d))}
+      ${apuntes.length ? `
+        <div class="fx-aps oculto" id="fx-aps-${escapa(t.id)}">
+          ${apuntes.map(a => `<button class="fila" type="button" data-accion="apunte-abrir" data-id="${escapa(a.id)}"><span class="izq"><span class="t1">${escapa(String(a.titulo || '').replace(/_+/g, ' '))}</span></span></button>`).join('')}
+        </div>` : ''}
+    </div>`;
+}
+
+/** Resumen de arriba, recalculado desde los datos actuales. */
+function pintaResumen(v, examenId) {
+  const e = examenDe(examenId);
+  if (!e || !v) return;
   const temas = motor.temarioDe(e);
   const prep = motor.preparacion(e);
-  const dias = Math.max(0, diasHasta(e.fecha));
+  const flojos = temas.filter(t => (t.dominio || 0) < 50).length;
+  const $ = q => v.querySelector(q);
+  if ($('#fx-prep')) $('#fx-prep').textContent = prep == null ? '—' : prep + '%';
+  if ($('#fx-prep-barra')) { const i = $('#fx-prep-barra i'); i.style.width = (prep || 0) + '%'; i.className = claseDe(prep || 0); }
+  if ($('#fx-flojos')) $('#fx-flojos').textContent = `${flojos} de ${temas.length}`;
+  if ($('#fx-entran')) $('#fx-entran').textContent = e.temaIds?.length ? `Entran ${temas.length} temas (los que marcas)` : 'Entran todos los temas de la asignatura';
+}
+
+function detalle(e) {
   const a = asignaturaDe(e.asignaturaId);
-  const propio = !!e.temaIds?.length;
+  const dias = Math.max(0, diasHasta(e.fecha));
+  const todos = temasDe(e.asignaturaId);
+  const entran = new Set(motor.temarioDe(e).map(t => t.id));
+  const hoy = hoyLocal(), desde = sumaDias(hoy, -14);
+
+  const sesiones = motor.listaSesiones().filter(s => s.asignaturaId === e.asignaturaId);
+  const min = sesiones.reduce((t, s) => t + (s.minutos || 0), 0);
+  const min14 = sesiones.filter(s => s.fecha >= desde).reduce((t, s) => t + (s.minutos || 0), 0);
+  const minTema = new Map();
+  for (const s of sesiones) if (s.temaId) minTema.set(s.temaId, (minTema.get(s.temaId) || 0) + (s.minutos || 0));
+  const apuntes = leer('apuntesMeta', []).filter(x => x.asignaturaId === e.asignaturaId);
+  const apDeTema = id => apuntes.filter(x => x.temaId === id);
+  const sueltos = apuntes.filter(x => !x.temaId);
 
   hoja({
     titulo: e.titulo,
     ancha: true,
     cuerpo: `
-      <div class="examen-cab">
-        <div class="info">
-          <div class="parrafo chico">${a ? escapa(a.nombre) + ' · ' : ''}${escapa(fechaLarga(e.fecha))}</div>
+      <div class="fx" data-examen="${escapa(e.id)}">
+        <div class="examen-cab">
+          <div class="info">
+            <div class="parrafo chico">${a ? escapa(a.nombre) + ' · ' : ''}${escapa(fechaLarga(e.fecha))}</div>
+          </div>
+          <div class="cuenta"><div class="n">${dias}</div><div class="u">${dias === 1 ? 'día' : 'días'}</div></div>
         </div>
-        <div class="cuenta"><div class="n">${dias}</div><div class="u">${dias === 1 ? 'día' : 'días'}</div></div>
-      </div>
 
-      ${prep != null ? `
-        <div data-mt-grande>
-          <div class="factor"><span class="n">Preparación</span><span class="v">${prep}%</span></div>
-          ${barra(prep, claseDe(prep))}
-          <div class="pista">${propio ? 'De los temas que marcaste que entran.' : 'De todos los temas de la asignatura (este examen no tiene temario propio).'}</div>
-        </div>` : ''}
+        ${todos.length ? `
+          <div class="rejilla3" data-mt-grande>
+            <div class="metrica"><div class="v" id="fx-prep">—</div><div class="e">Preparación</div></div>
+            <div class="metrica"><div class="v" id="fx-flojos">—</div><div class="e">Por debajo del 50 %</div></div>
+            <div class="metrica"><div class="v">${escapa(horasTxt(min))}</div><div class="e">Dedicadas · ${escapa(horasTxt(min14))} en 14 días</div></div>
+          </div>
+          <div id="fx-prep-barra" data-mt>${barra(0)}</div>
+          <div class="pista" id="fx-entran"></div>` : ''}
 
-      <div class="seccion-cab" data-mt-grande><h2>Temario</h2></div>
-      ${temas.length ? `
-        <div class="lista">
-          ${temas.slice().sort((x, y) => (x.dominio || 0) - (y.dominio || 0)).map(t => `
-            <div class="tema-fila">
-              <span class="n">${escapa(t.nombre)}</span>
-              ${barra(t.dominio || 0, claseDe(t.dominio || 0))}
-              <span class="pc">${t.dominio || 0}%</span>
-            </div>`).join('')}
+        <div class="seccion-cab" data-mt-grande>
+          <h2>Temario</h2>
+          <button class="acc" data-accion="tema-lote" data-id="${escapa(e.asignaturaId)}">+ Subir o pegar temario</button>
         </div>
-        <div class="pista">Ordenados de peor a mejor: los de arriba son donde más sube la nota por hora invertida.</div>
-      ` : `
-        <div class="vacio">
-          <h4>Sin temas todavía</h4>
-          <p>Apunta lo que entra y META podrá decirte por dónde empezar y cuánto llevas.</p>
-        </div>`}
+        ${todos.length ? `
+          <div class="pista">Marca los temas que entran en este examen y pon cuánto te sabes cada uno (±10 %).
+          Lo que dejes sin marcar no cuenta en la preparación.</div>
+          <div class="fx-lista" data-mt>${todos.map(t => filaTema(t, entran.has(t.id), minTema.get(t.id) || 0, apDeTema(t.id))).join('')}</div>`
+        : `
+          <div class="vacio">
+            <h4>Esta asignatura aún no tiene temario</h4>
+            <p>Sube el índice o la guía (PDF, Word, foto) y META saca los temas y los ordena; o pégalos a mano.</p>
+            <button class="boton" data-accion="tema-lote" data-id="${escapa(e.asignaturaId)}">Poner el temario</button>
+          </div>`}
 
-      <div class="campo" data-mt-grande>
-        <label for="ex-tema-nuevo">Añadir un tema al temario</label>
-        <input id="ex-tema-nuevo" type="text" placeholder="Derivadas" autocomplete="off">
-        <div class="pista">Intro para añadirlo. Se crea en ${escapa(a?.nombre || 'la asignatura')} y queda marcado en este examen.</div>
-      </div>
+        <div class="campo" data-mt-grande>
+          <label for="ex-tema-nuevo">Añadir un tema suelto</label>
+          <input id="ex-tema-nuevo" type="text" placeholder="Derivadas" autocomplete="off">
+          <div class="pista">Intro para añadirlo a ${escapa(a?.nombre || 'la asignatura')}.</div>
+        </div>
 
-      ${temas.length ? `
-        <button class="boton fantasma ancho" data-accion="examen-plan" data-id="${escapa(e.id)}" data-mt-grande>
-          Repartir el temario hasta el examen
-        </button>` : ''}`,
+        ${apuntes.length ? `
+          <div class="seccion-cab" data-mt-grande><h2>Apuntes de ${escapa(a?.nombre || 'la asignatura')}</h2><span class="apag">${apuntes.length}</span></div>
+          <div class="pista">${sueltos.length ? `${sueltos.length} ${sueltos.length === 1 ? 'no está' : 'no están'} colgados de ningún tema.` : 'Todos están colgados de un tema.'}</div>
+          <div class="lista" data-mt>
+            ${apuntes.slice(0, 14).map(x => `<button class="fila" type="button" data-accion="apunte-abrir" data-id="${escapa(x.id)}"><span class="izq"><span class="t1">${escapa(String(x.titulo || '').replace(/_+/g, ' '))}</span></span></button>`).join('')}
+          </div>` : ''}
+
+        ${todos.length ? `
+          <button class="boton fantasma ancho" data-accion="examen-plan" data-id="${escapa(e.id)}" data-mt-grande>
+            Repartir el temario hasta el examen
+          </button>` : ''}
+      </div>`,
     pie: `
       <button class="boton fantasma izquierda" data-accion="examen-ia" data-id="${escapa(e.id)}">${icono('chispa')} Plan con META AI</button>
       <button class="boton" data-accion="examen-estudiar" data-id="${escapa(e.id)}">Estudiar lo más flojo</button>`,
     alAbrir(v) {
+      pintaStyles(v);
+      pintaResumen(v, e.id);
       const inp = v.querySelector('#ex-tema-nuevo');
       inp?.addEventListener('keydown', ev => {
         if (ev.key !== 'Enter') return;
@@ -126,17 +196,55 @@ function detalle(e) {
         const nombre = inp.value.trim();
         if (!nombre) return;
         const t = crearTema({ asignaturaId: e.asignaturaId, nombre });
-        // Se marca en ESTE examen: si no, el tema quedaría suelto y la
-        // preparación seguiría midiendo la asignatura entera.
-        guardarTareas(motor.listaTareas().map(x => x.id === e.id
-          ? { ...x, temaIds: [...(x.temaIds || []), t.id] } : x));
-        inp.value = '';
-        const actualizado = motor.listaTareas().find(x => x.id === e.id);
+        // Si el examen ya tiene una selección propia, el tema nuevo entra en ella;
+        // si no, ya entra solo (entran todos los de la asignatura).
+        const actual = examenDe(e.id);
+        if (actual?.temaIds?.length) {
+          guardarTareas(motor.listaTareas().map(x => (x.id === e.id ? { ...x, temaIds: [...x.temaIds, t.id] } : x)));
+        }
+        const actualizado = examenDe(e.id);
         if (actualizado) detalle(actualizado);
       });
     },
   });
 }
+
+const pintaStyles = v => pintaEstilos(v);
+
+/* Porcentaje de un tema: ±10, sin repintar la hoja. */
+accion('fx-dom', (d, el) => {
+  const t = temaDe(d.id);
+  if (!t) return;
+  const nuevo = Math.max(0, Math.min(100, (t.dominio || 0) + Number(d.d)));
+  editarTema(d.id, { dominio: nuevo });
+  const fila = el.closest('.fx-tema');
+  fila.querySelector('.pc').textContent = nuevo + '%';
+  const i = fila.querySelector('.progreso > i');
+  i.style.width = nuevo + '%';
+  i.className = claseDe(nuevo);
+  const v = el.closest('.hoja');
+  pintaResumen(v, v.querySelector('.fx')?.dataset.examen);
+});
+
+/* Entra / no entra en este examen. temaIds vacío = entran todos. */
+accion('fx-entra', (d, el) => {
+  const v = el.closest('.hoja');
+  const e = examenDe(v.querySelector('.fx')?.dataset.examen);
+  if (!e) return;
+  const todos = temasDe(e.asignaturaId).map(t => t.id);
+  const entran = new Set(motor.temarioDe(e).map(t => t.id));
+  if (entran.has(d.id)) entran.delete(d.id); else entran.add(d.id);
+  if (!entran.size) return aviso('Tiene que entrar al menos un tema', 'mal');
+  guardarTareas(motor.listaTareas().map(x => (x.id === e.id ? { ...x, temaIds: entran.size === todos.length ? [] : [...entran] } : x)));
+  const dentro = entran.has(d.id);
+  el.setAttribute('aria-pressed', String(dentro));
+  el.closest('.fx-tema').classList.toggle('fuera', !dentro);
+  pintaResumen(v, e.id);
+});
+
+accion('fx-apuntes', (d, el) => {
+  el.closest('.fx-tema').querySelector('.fx-aps')?.classList.toggle('oculto');
+});
 
 accion('examen-abrir', d => {
   const e = motor.listaTareas().find(x => x.id === d.id);

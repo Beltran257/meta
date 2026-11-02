@@ -1,7 +1,7 @@
 /* ===========================================================================
    OCR DE APUNTES — cuando sube una foto o un PDF, se intenta sacar el texto
-   con Workers AI (env.IA.toMarkdown) para que el motor de estudio (flashcards
-   y tests, ver estudiar.js) pueda leerlo. Antes de esto, una foto de apuntes
+   con Workers AI (env.IA.toMarkdown) para que el texto se pueda buscar y entre
+   en los dossieres de NotebookLM. Antes de esto, una foto de apuntes
    era un archivo opaco: se guardaba, se veía en la app, pero la IA nunca la
    leía — la forma más natural de tomar apuntes en clase (una foto rápida)
    era justo la que el motor de estudio ignoraba, mientras que escribir el

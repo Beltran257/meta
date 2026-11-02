@@ -20,7 +20,7 @@ globalThis.localStorage = {
   clear: () => almacen.clear(),
 };
 
-const { asignaturaDeTitulo, esLogistica, tipoDeTitulo, sesionesDeBloques, inicioCurso } =
+const { asignaturaDeTitulo, esLogistica, tipoDeTitulo, sesionesDeBloques, inicioCurso, temaDeTitulo } =
   await import('../app/js/core/calendario.js');
 const { bloquesDeEstudio, clasesParticulares, procesarEnvio, fusionarBloques } = await import('../worker/estudio.js');
 const { codigoScript, MANIFIESTO } = await import('../app/js/core/script-estudio.js');
@@ -153,6 +153,44 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
 
   sesionesDeBloques(bloques, ASIG, { decisiones: { f: { asignaturaId: 'borrada' } } }, ahora).dudosos.some(x => x.id === 'f')
     ? bien('una decisión que apunta a una asignatura borrada vuelve a preguntarse') : mal('asignatura borrada aceptada');
+}
+
+/* ------------------------------ tema del bloque ---------------------------- */
+{
+  const TEM = [
+    { id: 't1', asignaturaId: 'fil', nombre: 'Tema 1. El nacimiento de la filosofía' },
+    { id: 't2', asignaturaId: 'fil', nombre: 'Tema 2. Platón' },
+    { id: 't3', asignaturaId: 'fil', nombre: 'Tema 3. Aristóteles y el helenismo' },
+    { id: 'h1', asignaturaId: 'his', nombre: 'A1. La importancia de la romanización en la configuración de la cultura española' },
+    { id: 'h2', asignaturaId: 'his', nombre: 'B1. La unión dinástica de los RRCC y la formación del Estado Moderno' },
+    { id: 'a1', asignaturaId: 'art', nombre: 'Bloque 2. Arte egipcio' },
+    { id: 'a2', asignaturaId: 'art', nombre: 'Bloque 3. Arte griego' },
+  ];
+  const f = TEM.filter(t => t.asignaturaId === 'fil'), h = TEM.filter(t => t.asignaturaId === 'his'), a = TEM.filter(t => t.asignaturaId === 'art');
+  igual('el tema sale del título cuando lo dice: número, apartado o palabra propia del tema',
+    [temaDeTitulo('Repasar tema 2 filosofía', f, 'Historia de la Filosofía'), temaDeTitulo('Estudiar Platón', f, 'Historia de la Filosofía'), temaDeTitulo('Aristóteles', f, 'Historia de la Filosofía'),
+      temaDeTitulo('Repasar A1 historia', h, 'Historia de España'), temaDeTitulo('Romanización', h, 'Historia de España'), temaDeTitulo('Arte bloque 3', a, 'Historia del Arte'), temaDeTitulo('Hacer esquema egipcio', a, 'Historia del Arte')],
+    ['t2', 't2', 't3', 'h1', 'h1', 'a2', 'a1']);
+  igual('y NO se adivina: títulos genéricos, números que no existen o que se repiten',
+    [temaDeTitulo('Estudiar filosofía', f, 'Historia de la Filosofía'), temaDeTitulo('Repasar historia', h, 'Historia de España'), temaDeTitulo('Tema 9', f, 'Historia de la Filosofía'), temaDeTitulo('Estudiar arte', a, 'Historia del Arte'),
+      temaDeTitulo('Tema 1', [...f, { id: 'x', asignaturaId: 'fil', nombre: 'Tema 1. Otro distinto' }], 'Historia de la Filosofía')],
+    [null, null, null, null, null]);
+
+  const ahora = Date.parse('2026-10-18T12:00:00+02:00');
+  const B = (id, titulo, d) => ({ id, titulo, inicio: `2026-10-${d}T17:00:00+02:00`, fin: `2026-10-${d}T18:00:00+02:00`, estado: 'hecha' });
+  const asig = [{ id: 'fil', nombre: 'Historia de la Filosofía' }, { id: 'art', nombre: 'Historia del Arte' }, { id: 'eco', nombre: 'Economía' }];
+  const bl = [B('x1', 'Repasar Platón', '17'), B('x2', 'Estudiar filosofía', '16'), B('x3', 'Estudiar arte', '15'),
+    B('x4', 'Estudiar economía', '14'), B('x5', 'Filosofía', '02'), { ...B('x6', 'Particulares matemáticas', '13'), fuente: 'particular' }];
+  const r = sesionesDeBloques(bl, [...asig, { id: 'mat', nombre: 'Matemáticas CCSS II' }], {}, ahora, TEM);
+  const tema = Object.fromEntries(r.sesiones.map(s => [s.id.slice(4), s.temaId]));
+  igual('la sesión lleva el tema deducido del título (o ninguno)', [tema.x1, tema.x2, tema.x3], ['t2', null, null]);
+  igual('se pregunta el tema SOLO de lo reciente, de asignaturas con temario, y no de particulares',
+    r.temaPendientes.map(x => x.id).sort(), ['x2', 'x3']);
+  const r2 = sesionesDeBloques(bl, asig, { decisiones: { x2: { temaId: 't1' }, x3: { temaId: 'ninguno' } } }, ahora, TEM);
+  igual('lo que él contesta se guarda (un tema, o "varios") y no se vuelve a preguntar',
+    [r2.sesiones.find(s => s.id === 'cal-x2').temaId, r2.sesiones.find(s => s.id === 'cal-x3').temaId, r2.temaPendientes.length], ['t1', null, 0]);
+  const r3 = sesionesDeBloques(bl, asig, { decisiones: { x2: { temaId: 'tema-borrado' } } }, ahora, TEM);
+  igual('un tema que ya no existe vuelve a preguntarse', r3.temaPendientes.some(x => x.id === 'x2'), true);
 }
 
 /* -------------------- particulares y lista de Tasks ----------------------- */

@@ -11,7 +11,6 @@
      · El temario con su dominio, para que el cuaderno sepa qué lleva flojo.
      · El TEXTO de los apuntes — incluido el que el OCR sacó de las fotos y
        los PDF (ver worker/ocr.js). Esto es la carne del asunto.
-     · Las tarjetas de repaso, que ya son pares pregunta/respuesta.
      · Exámenes y entregas con fecha, para que pueda preguntar "qué me queda".
      · Las notas de cada evaluación y su objetivo.
    Se quedan fuera las notas rápidas, que no tienen asignatura (son captura al
@@ -70,8 +69,8 @@ function parteTemario(temas) {
     return `<li><b>${e(t.nombre)}</b> — ${d == null ? 'sin medir todavía' : `dominio ${d} de 100 (${nivel})`}` +
       `${t.proximo ? `. Próximo repaso: ${e(fechaLegible(t.proximo))}` : ''}</li>`;
   }).join('');
-  return `<p>El dominio va de 0 a 100 y no es una nota: lo calcula META sola a partir de los
-    repasos, tests y sesiones de estudio. Sirve para saber por dónde hay que apretar.</p>
+  return `<p>El dominio va de 0 a 100 y no es una nota: es mi propia estimación de cuánto me sé
+    cada tema. Sirve para saber por dónde hay que apretar.</p>
     <ul>${filas}</ul>`;
 }
 
@@ -99,20 +98,6 @@ function parteApuntes(apuntes) {
         }).join('');
       return `<h3>${e(titulo)}</h3>${cuerpo}`;
     }).join('');
-}
-
-function parteTarjetas(flashcards, temas) {
-  if (!flashcards.length) return '';
-  const nombreTema = id => temas.find(t => t.id === id)?.nombre || 'Sin tema';
-  const porTema = new Map();
-  for (const f of flashcards) {
-    const k = nombreTema(f.temaId);
-    if (!porTema.has(k)) porTema.set(k, []);
-    porTema.get(k).push(f);
-  }
-  return [...porTema.entries()].map(([tema, lista]) =>
-    `<h3>${e(tema)}</h3><ul>${lista.map(f =>
-      `<li><b>${e(f.anverso)}</b> → ${e(f.reverso)}</li>`).join('')}</ul>`).join('');
 }
 
 function parteFechas(tareas, hoy) {
@@ -152,16 +137,13 @@ export function dossierDeAsignatura(buzon, asignaturaId, ahora = new Date()) {
 
   const hoy = hoyMadrid(ahora);
   const temas = (c.temas?.datos || []).filter(t => t.asignaturaId === asignaturaId);
-  const idsTema = new Set(temas.map(t => t.id));
   const apuntes = (c.apuntesMeta?.datos || []).filter(a => a.asignaturaId === asignaturaId);
-  const flashcards = (c.flashcards?.datos || []).filter(f => idsTema.has(f.temaId));
   const tareas = (c.tareas?.datos || []).filter(t => t.asignaturaId === asignaturaId);
   const notas = (c.notas?.datos || {})[asignaturaId] || null;
 
   const partes = [
     seccion('Temario y cómo lo llevo', parteTemario(temas)),
     seccion('Mis apuntes', parteApuntes(apuntes)),
-    seccion('Tarjetas de repaso', parteTarjetas(flashcards, temas)),
     seccion('Exámenes y entregas que vienen', parteFechas(tareas, hoy)),
     seccion('Mis notas', parteNotas(notas)),
   ].filter(Boolean);

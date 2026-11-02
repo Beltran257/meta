@@ -614,7 +614,6 @@ function verTexto(a) {
       <button class="boton sutil izquierda" data-accion="apunte-favorito" data-id="${escapa(a.id)}">
         ${a.favorito ? '★ Quitar' : '☆ Favorito'}
       </button>
-      ${tema ? `<button class="boton fantasma" data-accion="flash-generar" data-tema="${escapa(tema.id)}">${icono('chispa')} Flashcards</button>` : ''}
       <button class="boton" data-accion="apunte-editar" data-id="${escapa(a.id)}">Editar</button>`,
   });
 }

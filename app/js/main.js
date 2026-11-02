@@ -8,7 +8,7 @@
 
 import { clasificar } from './core/device.js';
 import { accion, iniciarAcciones, on, emitir } from './core/bus.js';
-import { leer, guardar, pedirPersistencia } from './core/store.js';
+import { leer, guardar, pedirPersistencia, limpiarObsoletas } from './core/store.js';
 import { APP } from './core/registry.js';
 import { aviso } from './core/ui.js';
 import { inicialesNombre, hoyLocal, diasHasta } from './core/fmt.js';
@@ -33,6 +33,7 @@ import './vistas/buscar.js';    // registra la búsqueda global
 clasificar();
 iniciarAcciones();
 pedirPersistencia();
+limpiarObsoletas();
 
 /* =============================== NAVEGACIÓN ================================ */
 
