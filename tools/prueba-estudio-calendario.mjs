@@ -47,7 +47,7 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
     ['Terminar comentario texto literatura', 'len'], ['Hacer tabla morfología verbos subrayar (pág. 50)', 'len'],
     ['Portfolio inglés', 'ing'], ['Inglés biblia', 'ing'], ['Ejercicios matemáticas', 'mat'],
     ['Cuaderno matemáticas + revisar otros', 'mat'], ['Economía buscar x', 'eco'], ['Cuaderno economía', 'eco'],
-    ['Planchar', null], ['Preparar ICADE', null], ['Mandar ejercicios Germán', null], ['', null],
+    ['Recoger la ropa', null], ['Preparar la universidad', null], ['Mandar ejercicios al profesor', null], ['', null],
   ];
   const errores = casos.filter(([t, id]) => asignaturaDeTitulo(t, ASIG) !== id)
     .map(([t, id]) => `"${t}" → ${nombre(asignaturaDeTitulo(t, ASIG))} (tocaba ${nombre(id)})`);
@@ -123,9 +123,9 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
     B('c', 'Imprimir tema arte', '06T18:00', '06T18:15'),
     B('d', 'Estudiar historia', '14T17:45', '14T19:45', 'pendiente'),   // última semana sin marcar
     B('e', 'Leer tema historia', '02T17:30', '02T18:00', 'pendiente'),  // vieja sin marcar
-    B('f', 'Planchar', '05T21:15', '05T22:15'),                          // hecha, sin asignatura
-    B('g', 'Mandar ejercicios Germán', '05T19:30', '05T20:30'),         // logística… salvo regla
-    B('i', 'Preparar ICADE', '13T19:00', '13T20:00'),
+    B('f', 'Recoger la ropa', '05T21:15', '05T22:15'),                          // hecha, sin asignatura
+    B('g', 'Mandar ejercicios al profesor', '05T19:30', '05T20:30'),         // logística… salvo regla
+    B('i', 'Preparar la universidad', '13T19:00', '13T20:00'),
     B('h', 'Estudiar arte', '17T16:30', '17T18:30'),
   ];
   let r = sesionesDeBloques(bloques, ASIG, {}, ahora);
@@ -143,7 +143,7 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
 
   r = sesionesDeBloques(bloques, ASIG, {
     decisiones: { d: { hecho: true }, f: { asignaturaId: 'no' }, i: { asignaturaId: 'no' }, h: { hecho: false }, a: { asignaturaId: 'his' } },
-    reglas: { 'mandar ejercicios german': 'mat' },
+    reglas: { 'mandar ejercicios al profesor': 'mat' },
   }, ahora);
   const por = Object.fromEntries(r.sesiones.map(x => [x.id, `${x.asignaturaId}:${x.minutos}`]));
   JSON.stringify(por) === JSON.stringify({ 'cal-a': 'his:60', 'cal-b': 'fil:15', 'cal-g': 'mat:60', 'cal-d': 'his:120' })

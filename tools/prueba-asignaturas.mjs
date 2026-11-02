@@ -36,7 +36,7 @@ const siembra = () => {
   guardar('temas', [{ id: 'm1', asignaturaId: 'par', nombre: 'Matrices' }, { id: 'm2', asignaturaId: 'len', nombre: 'Sintaxis' }]);
   guardar('notas', { par: { objetivo: 7 }, len: { objetivo: 8 } });
   guardar('horario', { franjas: [], dias: { lunes: ['len', 'par', null, 'rec'], martes: ['mat', 'par'] } });
-  guardar('calendario', { reglas: { 'ejercicios extra': 'par', planchar: 'no' }, decisiones: { b1: { asignaturaId: 'par' }, b2: { hecho: true } } });
+  guardar('calendario', { reglas: { 'ejercicios extra': 'par', 'recoger la ropa': 'no' }, decisiones: { b1: { asignaturaId: 'par' }, b2: { hecho: true } } });
 };
 
 siembra();
@@ -52,7 +52,7 @@ fusionarAsignatura('par', 'mat');
   const n = leer('notas', {});
   n.mat?.objetivo === 7 && !('par' in n) && n.len?.objetivo === 8 ? bien('las notas pasan si el destino no tenía') : mal(`notas: ${JSON.stringify(n)}`);
   const c = leer('calendario', {});
-  c.reglas['ejercicios extra'] === 'mat' && c.reglas.planchar === 'no' && c.decisiones.b1.asignaturaId === 'mat' && c.decisiones.b2.hecho === true
+  c.reglas['ejercicios extra'] === 'mat' && c.reglas['recoger la ropa'] === 'no' && c.decisiones.b1.asignaturaId === 'mat' && c.decisiones.b2.hecho === true
     ? bien('lo decidido sobre el calendario sigue apuntando bien') : mal(`calendario: ${JSON.stringify(c)}`);
   listaAsignaturas().map(a => a.id).join() === 'mat,len,rec' ? bien('la asignatura origen desaparece') : mal('origen sigue en la lista');
 }

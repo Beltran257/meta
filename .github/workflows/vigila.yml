@@ -13,6 +13,11 @@ on:
   schedule:
     - cron: '17 */6 * * *'
   workflow_dispatch:
+    inputs:
+      simular_fallo:
+        description: 'Probar la alarma: apunta la vigilancia a una URL inexistente para comprobar que se abre la incidencia (y, al volver a lanzarla normal, que se cierra)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,7 +41,7 @@ jobs:
 
       - name: vigilar producción
         id: vigila
-        run: node tools/vigila.mjs
+        run: node tools/vigila.mjs ${{ inputs.simular_fallo && 'https://meta-inexistente.invalid' || '' }}
         continue-on-error: true
 
       - name: incidencia (abrir, mantener o cerrar)
