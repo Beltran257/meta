@@ -64,7 +64,8 @@ export function clasesDe(dow) {
   const fila = h.dias[dia.id] || [];
   return h.franjas
     .map((f, i) => ({ franja: f, indice: i, asignaturaId: fila[i] || null }))
-    .filter(c => c.asignaturaId);
+    .filter(c => c.asignaturaId)
+    .sort((x, y) => (aMinutos(x.franja.ini) ?? 0) - (aMinutos(y.franja.ini) ?? 0));   // las franjas de "solo un día" se crean al final
 }
 
 /** Qué hay AHORA y qué viene después, mirando el reloj de verdad. */

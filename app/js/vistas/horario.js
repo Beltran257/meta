@@ -38,6 +38,17 @@ function franjasOrdenadas(h) {
     en la vista de Día del día al que pertenece. */
 const franjasSemana = h => franjasOrdenadas(h).filter(({ f }) => !f.dia);
 
+/** Clases de "solo ese día" que caen dentro de una fila de la Semana (p. ej. el
+    miércoles Filosofía acaba a las 13:15 y FAG sigue hasta las 15:00): se pintan
+    en la fila que solapan, con su hora si no coincide con la de la fila. */
+function especialesEn(h, dia, f) {
+  const ini = aMinutos(f.ini), fin = aMinutos(f.fin);
+  return h.franjas
+    .map((g, i) => ({ g, i, a: h.dias[dia]?.[i] ? asignaturaDe(h.dias[dia][i]) : null }))
+    .filter(e => e.g.dia === dia && e.a && aMinutos(e.g.ini) < fin && aMinutos(e.g.fin) > ini)
+    .sort((x, y) => aMinutos(x.g.ini) - aMinutos(y.g.ini));
+}
+
 function guardarHorario(h) {
   guardar('horario', h);
   emitir('local-cambio');
@@ -69,6 +80,11 @@ function vistaSemana() {
         ${franjasSemana(h).map(({ f, i }) => `
           <div class="hora">${escapa(f.ini)}<br>${escapa(f.fin)}</div>
           ${motor.DIAS_LECTIVOS.map(d => {
+            const esp = especialesEn(h, d.id, f);
+            if (esp.length) return `
+              <button class="casilla" data-accion="casilla" data-dia="${d.id}" data-i="${esp[0].i}">
+                ${esp.map(e => `<span class="nom"><i class="barrita" data-bg="${escapa(e.a.color)}"></i>${escapa(e.a.nombre)}${e.g.ini === f.ini && e.g.fin === f.fin ? '' : ` · ${escapa(e.g.ini)}–${escapa(e.g.fin)}`}</span>`).join('')}
+              </button>`;
             const asigId = h.dias[d.id]?.[i] || null;
             const a = asigId ? asignaturaDe(asigId) : null;
             return `
