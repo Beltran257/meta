@@ -10,7 +10,7 @@
 import { guardar } from '../core/store.js';
 import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, enfocar, marcarCheck, flipLista } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
-import { escapa, hoyLocal, fechaLarga, fechaCorta, diasHasta, textoCountdown, duracion, sumaDias } from '../core/fmt.js';
+import { escapa, hoyLocal, fechaCorta, diasHasta, textoCountdown, duracion } from '../core/fmt.js';
 import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { temasDe } from '../core/temas.js';
 import * as motor from '../core/motor.js';

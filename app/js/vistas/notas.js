@@ -8,7 +8,7 @@
    =========================================================================== */
 
 import { leer, guardar } from '../core/store.js';
-import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar } from '../core/ui.js';
+import { hoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar } from '../core/ui.js';
 import { accion, emitir } from '../core/bus.js';
 import { escapa, hoyLocal, fechaCorta, nota as fnota, numeroDe, pct } from '../core/fmt.js';
 import { asignaturaDe } from '../core/asignaturas.js';

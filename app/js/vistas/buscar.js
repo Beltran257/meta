@@ -5,7 +5,7 @@
    =========================================================================== */
 
 import { leer } from '../core/store.js';
-import { hoja, cerrarHoja, pintaEstilos, icono } from '../core/ui.js';
+import { hoja, cerrarHoja, pintaEstilos } from '../core/ui.js';
 import { accion, on, emitir, retardar } from '../core/bus.js';
 import { escapa, fechaCorta } from '../core/fmt.js';
 import { listaAsignaturas, asignaturaDe } from '../core/asignaturas.js';

@@ -6,7 +6,7 @@
    sino "¿cuánto tengo encima este día?".
    =========================================================================== */
 
-import { leer, guardar } from '../core/store.js';
+import { guardar } from '../core/store.js';
 import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
 import { escapa, hoyLocal, fechaLarga, aFecha, sumaDias, aMinutos, aHora, MESES, duracion } from '../core/fmt.js';

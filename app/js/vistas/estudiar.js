@@ -15,9 +15,9 @@
    =========================================================================== */
 
 import { leer, guardar } from '../core/store.js';
-import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar } from '../core/ui.js';
+import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, barra } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
-import { escapa, hoyLocal, duracion, diasHasta, sumaDias, lunesDe, desdeCuando, fechaCorta } from '../core/fmt.js';
+import { escapa, hoyLocal, duracion, diasHasta, lunesDe, desdeCuando, fechaCorta } from '../core/fmt.js';
 import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { listaTemas, temaDe, temasDe, registrarRepaso, ajustarDominio, tocaRepasar } from '../core/temas.js';
 import * as motor from '../core/motor.js';

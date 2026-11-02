@@ -9,7 +9,7 @@
 
 import { hoja, cerrarHoja, aviso, pintaEstilos, icono, barra } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
-import { escapa, fechaLarga, fechaCorta, diaSemana, diasHasta, textoCountdown, duracion, hoyLocal, sumaDias } from '../core/fmt.js';
+import { escapa, fechaLarga, fechaCorta, diaSemana, diasHasta, duracion, hoyLocal, sumaDias } from '../core/fmt.js';
 import { leer } from '../core/store.js';
 import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { temasDe, temaDe, crearTema, editarTema } from '../core/temas.js';

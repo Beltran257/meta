@@ -10,7 +10,7 @@
 import * as sesion from '../core/sesion.js';
 import { accion, emitir } from '../core/bus.js';
 import { aviso, pintaEstilos, icono } from '../core/ui.js';
-import { escapa, fechaLarga, hoyLocal, inicialesNombre } from '../core/fmt.js';
+import { escapa, fechaLarga, hoyLocal } from '../core/fmt.js';
 import { leer, guardar, estadoSync } from '../core/store.js';
 import { listaAsignaturas, siguienteColor, nuevoId } from '../core/asignaturas.js';
 

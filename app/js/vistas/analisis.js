@@ -8,8 +8,8 @@
    =========================================================================== */
 
 import { pintaEstilos, barra, icono } from '../core/ui.js';
-import { accion, on, emitir } from '../core/bus.js';
-import { escapa, hoyLocal, sumaDias, lunesDe, duracion, diasHasta, aFecha, DIAS_C, pct, nota as fnota } from '../core/fmt.js';
+import { accion, on } from '../core/bus.js';
+import { escapa, hoyLocal, sumaDias, lunesDe, duracion, aFecha, DIAS_C, pct, nota as fnota } from '../core/fmt.js';
 import { listaAsignaturas, asignaturaDe } from '../core/asignaturas.js';
 import { listaTemas, dominioMedio } from '../core/temas.js';
 import * as motor from '../core/motor.js';

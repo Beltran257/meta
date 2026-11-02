@@ -10,12 +10,12 @@ import { accion, on, emitir } from '../core/bus.js';
 import { escapa, duracion, diasHasta, fechaCorta, nota as fnota, pct } from '../core/fmt.js';
 import { PALETA, TIPOS_ASIGNATURA, listaAsignaturas, asignaturaDe, siguienteColor, nuevoId, tipoDe, fusionarAsignatura, contenido } from '../core/asignaturas.js';
 import { asignaturaDeTitulo, norma } from '../core/calendario.js';
-import { temasDeTitulos, unirNombres, ordenarNombres } from '../core/temario.js';
+import { temasDeTitulos, unirNombres } from '../core/temario.js';
 import { temasDeArchivo, tipoDeArchivo } from '../core/temario-lectura.js';
 import { guardarArchivoApunte } from './apuntes.js';
 import { temasDe, crearTema, crearTemas, editarTema, borrarTema, dominioMedio, enlazarApuntes } from '../core/temas.js';
 import * as motor from '../core/motor.js';
-import { abrirNotas, mediaGeneral, entradaDe } from './notas.js';
+import { abrirNotas, mediaGeneral } from './notas.js';
 
 let raiz = null;
 let seleccionada = null;

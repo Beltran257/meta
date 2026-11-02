@@ -7,9 +7,9 @@
    campos para apuntar "mañana entrego lengua".
    =========================================================================== */
 
-import { hoja, cerrarHoja, aviso, pintaEstilos, icono } from '../core/ui.js';
+import { hoja, cerrarHoja, aviso, icono } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
-import { escapa, duracion } from '../core/fmt.js';
+import { escapa } from '../core/fmt.js';
 import { contenido } from '../core/asignaturas.js';
 import { formTarea } from './tareas.js';
 import { nuevaRapida } from './apuntes.js';

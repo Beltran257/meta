@@ -4,7 +4,7 @@
    CONEXIONES (calendarios y Notion) y DATOS (exportar, importar, borrar).
    =========================================================================== */
 
-import { leer, guardar, exportar, importar, borrarTodo, estadoSync } from '../core/store.js';
+import { leer, guardar, exportar, importar, borrarTodo } from '../core/store.js';
 import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, enfocar } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
 import { escapa, hoyLocal, desdeCuando, duracion, inicialesNombre } from '../core/fmt.js';
