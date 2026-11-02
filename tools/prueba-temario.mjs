@@ -174,10 +174,9 @@ igual('un nombre que no dice tema no inventa nada', ['Documento escaneado.pdf', 
   // "Tema 3.pdf" a secas con un archivo ilegible: se queda el número, no hay error.
   const solo = await temasDeArchivo({ name: 'Tema 3.pdf', size: 30 * 1024 * 1024, type: 'application/pdf' });
   igual('"Tema 3.pdf" enorme: se queda "Tema 3" en vez de fallar', solo.temas, ['Tema 3']);
-  // Sin nombre útil y demasiado grande: sí es un error, con una frase que dice qué hacer.
-  let msg = '';
-  try { await temasDeArchivo({ name: 'cosas.pdf', size: 30 * 1024 * 1024, type: 'application/pdf' }); } catch (e) { msg = e.message; }
-  /20 MB.*Tema N/.test(msg) ? bien('sin nombre útil y demasiado grande: error que dice qué hacer') : mal(`mensaje: ${msg}`);
+  // Sin nombre útil y demasiado grande para leerlo: ya no es un error, se guarda igual.
+  const enorme = await temasDeArchivo({ name: 'cosas.pdf', size: 30 * 1024 * 1024, type: 'application/pdf' });
+  igual('sin nombre útil y de más de 20 MB: no da error, modo "grande" sin temas', [enorme.temas, enorme.modo], [[], 'grande']);
   // Un texto con índice y nombre genérico sigue funcionando por contenido.
   const idx = await temasDeArchivo({ name: 'indice.txt', size: 100, type: 'text/plain', text: async () => 'Tema 1. Uno\nTema 2. Dos\nTema 3. Tres' });
   igual('un índice por contenido sigue funcionando', [idx.temas.length, idx.modo], [3, 'palabra']);

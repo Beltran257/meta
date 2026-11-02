@@ -180,21 +180,27 @@ async function subirCambios(token, manifest, carpetasAsig) {
     }
 
     try {
-      await pedir(token, '/api/archivos/subir', {
-        method: 'POST',
-        headers: {
-          'X-Meta': '1',
-          'Content-Type': mime,
-          'X-Meta-Id': id,
-          'X-Meta-Titulo': encodeURIComponent(titulo),
-          'X-Meta-Tipo': tipo,
-          'X-Meta-Asignatura': f.asigId,
-          'X-Meta-Evaluacion': f.evaluacion,
-          'X-Meta-Fecha': new Date(st.mtimeMs).toISOString().slice(0, 10),
-          'X-Meta-Mime': mime,
-        },
-        body: cuerpo,
-      });
+      const cab = {
+        'X-Meta': '1',
+        'Content-Type': mime,
+        'X-Meta-Id': id,
+        'X-Meta-Titulo': encodeURIComponent(titulo),
+        'X-Meta-Tipo': tipo,
+        'X-Meta-Asignatura': f.asigId,
+        'X-Meta-Evaluacion': f.evaluacion,
+        'X-Meta-Fecha': new Date(st.mtimeMs).toISOString().slice(0, 10),
+        'X-Meta-Mime': mime,
+      };
+      // Más de 20 MB: en trozos de 10 MB (mismo protocolo que la app, ver worker/archivos.js).
+      const TROZO = 10 * 1024 * 1024;
+      const n = cuerpo.length > 20 * 1024 * 1024 ? Math.ceil(cuerpo.length / TROZO) : 1;
+      for (let i = 0; i < n; i++) {
+        await pedir(token, '/api/archivos/subir', {
+          method: 'POST',
+          headers: n === 1 ? cab : { ...cab, 'X-Meta-Parte': String(i), 'X-Meta-Partes': String(n), 'X-Meta-Total': String(cuerpo.length) },
+          body: n === 1 ? cuerpo : cuerpo.subarray(i * TROZO, Math.min(cuerpo.length, (i + 1) * TROZO)),
+        });
+      }
       manifest[f.relPath] = { id, mtimeMs: st.mtimeMs, size: st.size, origen: 'local' };
       subidos++;
     } catch (e) {

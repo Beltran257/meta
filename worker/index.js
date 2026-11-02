@@ -485,11 +485,14 @@ async function apiArchivosSubir(request, env, usuario, ctx) {
   const fecha = request.headers.get('X-Meta-Fecha') || '';
   if (!titulo || !asignaturaId || !fecha) return malaPeticion('campos');
 
+  const parte = archivos.leerParte(request.headers);
+  if (parte.error) return parte.demasiado ? json({ error: 'archivo demasiado grande (máximo 100 MB)' }, 413) : malaPeticion(parte.error);
+
   const bytes = await request.arrayBuffer();
   if (!bytes.byteLength) return malaPeticion('vacio');
   // Distinto del demasiadoGrande importado de sync.js (ese mide TEXTO del
-  // buzón, en caracteres); este mide bytes de archivo, límite muy distinto.
-  if (archivos.demasiadoGrande(bytes.byteLength)) return json({ error: 'archivo demasiado grande' }, 413);
+  // buzón, en caracteres); este mide bytes de archivo. Un trozo tiene su tope.
+  if (parte.trozos ? bytes.byteLength > archivos.MAX_PARTE : archivos.demasiadoGrande(bytes.byteLength)) return json({ error: 'archivo demasiado grande' }, 413);
 
   const espacio = usuario.espacio;
   /* El MIME lo elegía el cliente sin filtro: subiendo un archivo con
@@ -499,10 +502,21 @@ async function apiArchivosSubir(request, env, usuario, ctx) {
      página con permiso para hacer lo que quisiera dentro de la sesión. Ahora
      solo entran los tipos de imagen que la app usa de verdad. */
   const mime = tipo === 'pdf' ? 'application/pdf' : mimeDeFoto(request.headers.get('X-Meta-Mime'));
+  const apunte = { id, tipo, titulo, asignaturaId, evaluacion, fecha, r2: true };
+
+  if (parte.trozos) {
+    // Archivo grande: cada trozo se guarda aparte; el último cierra el archivo
+    // y solo entonces aparece en la lista de apuntes (nunca uno a medias).
+    await archivos.subirParte(env, espacio, id, parte.parte, bytes);
+    if (parte.parte === parte.partes - 1) {
+      await archivos.cerrarPartes(env, espacio, id, parte.partes, parte.total, mime);
+      await archivos.registrarApunte(env, espacio, { ...apunte, actualizado: Date.now() });
+    }
+    return json({ ok: true }, 200);
+  }
+
   await archivos.subir(env, espacio, id, bytes, mime);
-  await archivos.registrarApunte(env, espacio, {
-    id, tipo, titulo, asignaturaId, evaluacion, fecha, r2: true, actualizado: Date.now(),
-  });
+  await archivos.registrarApunte(env, espacio, { ...apunte, actualizado: Date.now() });
 
   // El OCR va en segundo plano: no tiene sentido que subir una foto se
   // note más lento por una llamada a Workers AI que puede tardar varios
@@ -511,9 +525,7 @@ async function apiArchivosSubir(request, env, usuario, ctx) {
   ctx.waitUntil((async () => {
     const texto = await extraerTexto(env, bytes, mime, `${titulo}.${tipo === 'pdf' ? 'pdf' : 'jpg'}`);
     if (!texto) return;
-    await archivos.registrarApunte(env, espacio, {
-      id, tipo, titulo, asignaturaId, evaluacion, fecha, r2: true, texto, actualizado: Date.now(),
-    }).catch(() => {});
+    await archivos.registrarApunte(env, espacio, { ...apunte, texto, actualizado: Date.now() }).catch(() => {});
   })());
 
   return json({ ok: true }, 200);
@@ -537,18 +549,19 @@ async function apiArchivosBorrar(request, env, usuario) {
 async function apiArchivosDescarga(url, env, usuario) {
   const id = url.pathname.slice('/api/archivos/'.length);
   if (!RE_ID_APUNTE.test(id)) return malaPeticion('id');
-  const { value, metadata } = await archivos.leer(env, usuario.espacio, id);
-  if (!value) return new Response('no encontrado', { status: 404 });
-  const guardado = metadata?.contentType || '';
+  const f = await archivos.abrir(env, usuario.espacio, id);
+  if (!f) return new Response('no encontrado', { status: 404 });
+  const guardado = f.tipo;
   // Cinturón y tirantes: lo que ya estuviera en KV con un tipo raro (subido
   // antes del filtro de arriba) tampoco se sirve como tal.
   const tipo = guardado === 'application/pdf' ? 'application/pdf'
     : MIME_FOTO.has(guardado) ? guardado : 'application/octet-stream';
-  return new Response(value, {
+  return new Response(f.cuerpo, {
     status: 200,
     headers: {
       ...SEGURIDAD,
       'Content-Type': tipo,
+      ...(f.tam ? { 'Content-Length': String(f.tam) } : {}),
       // Esta respuesta la arma el Worker, así que NO hereda la CSP de
       // app/_headers. Se le pone la suya: aunque algún día se colara un
       // archivo con HTML dentro, no podría cargar ni ejecutar nada.

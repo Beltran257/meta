@@ -65,7 +65,9 @@ export async function temasDeArchivo(archivo) {
     if (delNombre) return { temas: [delNombre.nombre], modo: 'nombre', texto: '' };
     throw new Error(motivo);
   };
-  if (archivo.size > MAX_MB * 1024 * 1024) return sinContenido(`Pesa más de ${MAX_MB} MB y su nombre no dice qué tema es. Ponle "Tema N …" al nombre o pega el índice.`);
+  // Demasiado grande para leerlo (el servidor lee hasta 20 MB): no es un error,
+  // se guarda igual en Apuntes y el tema se indica a mano o con el nombre.
+  if (archivo.size > MAX_MB * 1024 * 1024) return delNombre ? sinContenido('') : { temas: [], modo: 'grande', texto: '' };
 
   let texto = '';
   try {

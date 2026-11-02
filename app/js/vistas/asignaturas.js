@@ -411,8 +411,9 @@ export function abrirTemarioLote(asignaturaId) {
             const r = await temasDeArchivo(f);
             const nuevos = unirNombres([lineasDe(ta), r.temas], ya);
             ponLineas(ta, nuevos);
-            estados[i] = { nombre: f.name, ok: r.temas.length > 0,
-              texto: r.temas.length
+            estados[i] = { nombre: f.name, ok: r.temas.length > 0 || r.modo === 'grande',
+              texto: r.modo === 'grande' ? 'Es muy grande para leerlo: se guarda en Apuntes igualmente. Para sacar sus temas, ponle "Tema N …" al nombre o pega el índice.'
+                : r.temas.length
                 ? `${r.temas.length} ${r.temas.length === 1 ? 'tema' : 'temas'}${r.modo === 'ia' ? ' (con IA: revísalos)' : r.modo === 'nombre' ? ' · el que dice el nombre del archivo' : ''}`
                 : 'Lo he leído pero no encuentro temas claros. Pega el índice a mano o prueba con otra página.' };
             if (['pdf', 'foto'].includes(tipoDeArchivo(f))) archivosTemario.push({ f, tema: r.modo === 'nombre' ? r.temas[0] : null });

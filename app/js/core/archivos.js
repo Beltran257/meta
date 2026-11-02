@@ -55,26 +55,49 @@ export async function reducirFoto(archivo) {
 
 /** Sube el archivo real al espacio de la cuenta. No usa sesion.pedir() porque
     ese fuerza JSON; aquí el cuerpo son los bytes del archivo tal cual. */
+/* Hasta aquí se sube de una vez; lo que pesa más va en trozos de 10 MB (un valor
+   de KV no pasa de 25 MB, ver worker/archivos.js). Tope total: 100 MB. */
+export const UMBRAL_TROZOS = 20 * 1024 * 1024;
+export const TROZO = 10 * 1024 * 1024;
+export const MAX_SUBIDA = 100 * 1024 * 1024;
+
+/** Cuántos trozos y de qué tamaño. Pura (se prueba sin red). */
+export function trocea(tam) {
+  if (tam <= UMBRAL_TROZOS) return [{ desde: 0, hasta: tam }];
+  const n = Math.ceil(tam / TROZO);
+  return Array.from({ length: n }, (_, i) => ({ desde: i * TROZO, hasta: Math.min(tam, (i + 1) * TROZO) }));
+}
+
 export async function subirArchivo(a, blob) {
-  if (!sesion.dentro()) return false;
+  if (!sesion.dentro() || blob.size > MAX_SUBIDA) return false;
+  const base = {
+    'X-Meta': '1',
+    'Content-Type': blob.type || 'application/octet-stream',
+    'X-Meta-Id': a.id,
+    'X-Meta-Titulo': encodeURIComponent(a.titulo),
+    'X-Meta-Tipo': a.tipo,
+    'X-Meta-Asignatura': a.asignaturaId || '',
+    'X-Meta-Evaluacion': a.evaluacion || '',
+    'X-Meta-Fecha': a.fecha || '',
+    'X-Meta-Mime': blob.type || '',
+  };
+  const trozos = trocea(blob.size);
   try {
-    const r = await fetch('/api/archivos/subir', {
-      method: 'POST',
-      credentials: 'same-origin',
-      headers: {
-        'X-Meta': '1',
-        'Content-Type': blob.type || 'application/octet-stream',
-        'X-Meta-Id': a.id,
-        'X-Meta-Titulo': encodeURIComponent(a.titulo),
-        'X-Meta-Tipo': a.tipo,
-        'X-Meta-Asignatura': a.asignaturaId || '',
-        'X-Meta-Evaluacion': a.evaluacion || '',
-        'X-Meta-Fecha': a.fecha || '',
-        'X-Meta-Mime': blob.type || '',
-      },
-      body: blob,
-    });
-    return r.ok;
+    for (let i = 0; i < trozos.length; i++) {
+      const cabeceras = trozos.length === 1 ? base
+        : { ...base, 'X-Meta-Parte': String(i), 'X-Meta-Partes': String(trozos.length), 'X-Meta-Total': String(blob.size) };
+      let ok = false;
+      for (let intento = 0; intento < 3 && !ok; intento++) {   // un trozo que falla se repite; no se empieza de cero
+        const r = await fetch('/api/archivos/subir', {
+          method: 'POST', credentials: 'same-origin', headers: cabeceras,
+          body: trozos.length === 1 ? blob : blob.slice(trozos[i].desde, trozos[i].hasta),
+        }).catch(() => null);
+        ok = !!r?.ok;
+        if (r && !r.ok && r.status < 500) return false;       // 4xx: repetir no lo arregla
+      }
+      if (!ok) return false;
+    }
+    return true;
   } catch { return false; }
 }
 

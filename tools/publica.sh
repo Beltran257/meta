@@ -71,6 +71,9 @@ echo '✅ estudio desde el calendario correcto'
 # se ve, solo faltan horas, casillas o apuntes.
 node tools/prueba-asignaturas.mjs > /dev/null || { echo '❌ fusionar asignaturas o el temario falla'; exit 1; }
 echo '✅ asignaturas y temario correctos'
+# Archivos de más de 20 MB: van en trozos; un trozo mal pegado corrompe un PDF sin avisar.
+node tools/prueba-archivos-grandes.mjs > /dev/null || { echo '❌ los archivos grandes fallan'; exit 1; }
+echo '✅ archivos grandes correctos'
 # La vigilancia: cada alarma tiene que sonar cuando toca y no sonar sin motivo.
 node tools/prueba-vigilancia.mjs > /dev/null || { echo '❌ la vigilancia falla'; exit 1; }
 echo '✅ vigilancia correcta'

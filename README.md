@@ -160,8 +160,11 @@ repo. `.dev.vars` es solo para local y está en `.gitignore`.
 
 - Los archivos de apuntes van a **KV y no a R2** a propósito: R2 pide tarjeta en
   la cuenta (aunque no cobre dentro de lo gratis). KV es gratis sin tarjeta, con
-  tope de 1 GB y 25 MB por valor — de sobra para fotos y PDF de bachillerato. Si
-  se queda corto, se pasa a R2 cambiando solo `worker/archivos.js`.
+  tope de 1 GB y 25 MB por valor. Los archivos de más de 20 MB (hasta 100 MB) se
+  suben y se guardan **en trozos de 10 MB** y se sirven como uno solo; no se lee
+  su contenido (ni OCR ni temas): se guardan en Apuntes y el tema lo dice el
+  nombre del archivo o se indica a mano. Si se queda corto, se pasa a R2
+  cambiando solo `worker/archivos.js`.
 - Sin cron propio (tope de 5 por cuenta): lo periódico va por GitHub Actions
   (`vigila`) y por Morning Briefing.
 - Un PDF escaneado (sin texto) no se puede leer para sacar temario: se suben
