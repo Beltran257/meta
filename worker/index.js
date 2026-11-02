@@ -17,6 +17,7 @@ import * as auth from './auth.js';
 import * as google from './google.js';
 import * as estudio from './estudio.js';
 import { leerArchivo } from './temario.js';
+import * as vigilancia from './vigilancia.js';
 import * as microsoft from './microsoft.js';
 import * as notion from './notion.js';
 import * as ia from './ia.js';
@@ -604,6 +605,16 @@ async function apiSalud(env) {
   try { estadoGoogle = await google.sondaGoogle(env); }
   catch (e) { estadoGoogle = `error: ${String(e?.message || e).slice(0, 80)}`; }
 
+  /* Tres sondas que nacieron de un fallo real (vigilancia.js): datos que encogen
+     de golpe, el script del estudio sin enviar, y errores de JavaScript del
+     aparato. Sin identificar a nadie: solo secciones, cifras y fechas. */
+  const sonda = async f => { try { return await f(); } catch (e) { return `error: ${String(e?.message || e).slice(0, 80)}`; } };
+  const [datos, estudio, errores] = await Promise.all([
+    sonda(() => vigilancia.sondaDatos(env.META_DATOS)),
+    sonda(() => vigilancia.sondaEstudio(env.META_DATOS)),
+    sonda(() => vigilancia.sondaErrores(env.META_DATOS)),
+  ]);
+
   return json({
     ok: true,
     servicio: 'meta',
@@ -611,6 +622,9 @@ async function apiSalud(env) {
     cuentas,
     google: estadoGoogle,
     ia: env.IA ? 'enlazada' : 'ausente',
+    datos,
+    estudio,
+    errores,
   }, 200);
 }
 
@@ -667,7 +681,7 @@ const ESCRIBEN = [
   '/api/notion/conectar', '/api/notion/desconectar',
   '/api/archivos/subir', '/api/archivos/borrar',
   '/api/notebooklm/sincronizar',
-  '/api/ics/renovar', '/api/estudio/clave', '/api/temario/leer', '/api/temario/ia',
+  '/api/ics/renovar', '/api/estudio/clave', '/api/temario/leer', '/api/temario/ia', '/api/error',
   // La pide Salud por service binding, pero también valdría la cookie: sin
   // esto, una web cualquiera podría hacer que le apareciera un evento en su
   // calendario. Salud manda la cabecera igual que manda X-Salud en la suya.
@@ -714,6 +728,15 @@ export default {
       if (url.pathname === '/api/oauth/microsoft/callback') return await apiMicrosoft.callback(url, env);
       if (url.pathname === '/api/google/conectar') return await apiGoogle.conectar(request, env);
       if (url.pathname === '/api/microsoft/conectar') return await apiMicrosoft.conectar(request, env);
+      // Errores de JavaScript del aparato (sin sesión: pueden pasar antes de entrar).
+      // Acotado y deduplicado en vigilancia.js; el limitador de /api/* ya cubre el abuso.
+      if (url.pathname === '/api/error') {
+        if (request.method !== 'POST') return json({ error: 'metodo no permitido' }, 405);
+        const { datos, error } = await cuerpo(request);
+        if (error) return error;
+        await vigilancia.registraError(env.META_DATOS, datos).catch(() => {});
+        return json({ ok: true }, 200);
+      }
       // Lo manda su Apps Script cada hora, con su propia clave (no una sesión:
       // esa clave solo sirve para esto). Ver worker/estudio.js.
       if (url.pathname === '/api/estudio/recibir') {

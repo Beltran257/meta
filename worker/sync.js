@@ -14,6 +14,8 @@
    exámenes que hay aquí son justo lo que se ofrece a Calendar/Outlook.
    =========================================================================== */
 
+import { anotaPerdida } from './vigilancia.js';
+
 // Sin I, O, 0, 1: son las que se copian mal de una pantalla a otra.
 const ALFABETO = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 const LARGO = 8;
@@ -58,6 +60,9 @@ export async function fusionar(kv, codigo, entrante) {
     if (!paquete || typeof paquete.ts !== 'number') continue;
     const previo = claves[nombre];
     if (!previo || paquete.ts > previo.ts) {
+      // Si una lista encoge de golpe se anota y se guarda lo que había: es lo
+      // único que habría delatado la pérdida de horas de nov 2026 (vigilancia.js).
+      try { await anotaPerdida(kv, codigo, nombre, previo?.datos, paquete.datos); } catch { /* vigilar nunca rompe sincronizar */ }
       claves[nombre] = { ts: paquete.ts, datos: paquete.datos ?? null };
     }
   }

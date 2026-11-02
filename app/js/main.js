@@ -7,7 +7,7 @@
    =========================================================================== */
 
 import { clasificar } from './core/device.js';
-import { accion, iniciarAcciones, on, emitir } from './core/bus.js';
+import { accion, iniciarAcciones, on } from './core/bus.js';
 import { leer, guardar, pedirPersistencia, limpiarObsoletas } from './core/store.js';
 import { APP } from './core/registry.js';
 import { aviso } from './core/ui.js';
@@ -16,6 +16,7 @@ import * as sesion from './core/sesion.js';
 import * as sync from './core/sync.js';
 import * as motor from './core/motor.js';
 import * as calendario from './core/calendario.js';
+import { vigilarErrores } from './core/errores.js';
 
 import * as acceso from './vistas/acceso.js';
 import hoy from './vistas/hoy.js';
@@ -32,6 +33,7 @@ import './vistas/buscar.js';    // registra la búsqueda global
 
 clasificar();
 iniciarAcciones();
+vigilarErrores(() => actual || '');
 pedirPersistencia();
 limpiarObsoletas();
 

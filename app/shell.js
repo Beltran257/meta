@@ -29,6 +29,7 @@ self.SHELL = [
   './js/core/store.js',
   './js/core/bus.js',
   './js/core/calendario.js',
+  './js/core/errores.js',
   './js/core/temario.js',
   './js/core/temario-lectura.js',
   './js/core/script-estudio.js',
