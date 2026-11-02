@@ -164,6 +164,11 @@ export function guardarSubtemas(asignaturaId, items, codigosElegidos) {
 
 /** Qué aporta un archivo de temario que se va ampliando, SIN guardar nada:
     temas nuevos, temas que ya estaban y, de estos, los apartados nuevos. */
+/** ¿Este grupo de apartados es de este tema? Un grupo con `tema` (el archivo ES
+    ese tema) se casa por nombre; el resto, por el número de tema del índice. */
+const casa = (t, g) => (g.tema ? normaNombre(t.nombre) === normaNombre(g.tema) : unidadDe(t.nombre)?.num === g.num);
+const normaNombre = n => String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
 export function novedadesDeTemario(asignaturaId, nombres, grupos) {
   const propios = temasDe(asignaturaId);
   const numDe = n => unidadDe(n)?.num ?? null;
@@ -172,7 +177,7 @@ export function novedadesDeTemario(asignaturaId, nombres, grupos) {
   const nuevosNum = new Set(nuevosNombres.map(numDe).filter(x => x != null));
   const ampliados = [];
   for (const g of grupos || []) {
-    const t = propios.find(x => numDe(x.nombre) === g.num);
+    const t = propios.find(x => casa(x, g));
     if (!t) continue;
     const tenia = new Set((t.apartados || []).map(a => a.c));
     const nuevos = t.apartados ? g.apartados.filter(a => !tenia.has(a.c)) : [];     // sin apartados guardados aún: se guardan, no son "novedad"
@@ -189,7 +194,7 @@ export function guardarApartados(asignaturaId, grupos) {
   let cambios = 0;
   const lista = listaTemas().map(t => {
     if (t.asignaturaId !== asignaturaId) return t;
-    const g = (grupos || []).find(x => x.num === unidadDe(t.nombre)?.num);
+    const g = (grupos || []).find(x => casa(t, x));
     if (!g) return t;
     const previos = t.apartados || [];
     const tenia = new Set(previos.map(a => a.c));

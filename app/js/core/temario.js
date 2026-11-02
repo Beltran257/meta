@@ -201,6 +201,76 @@ export function apartadosDeTexto(texto) {
   }));
 }
 
+/* ---------------- el esquema de un archivo que ES un tema ------------------
+   Un archivo por tema ("BLOQUE 1. 1.2. …pdf") trae dentro su propio esquema:
+   "1. AL-ANDALUS", "1.1. LA CONQUISTA…", "2.4. LOS MODELOS DE REPOBLACIÓN",
+   y listas numeradas ("1. El Emirato…") que no son otro apartado. La
+   numeración no es la del temario sino la del archivo, así que aquí no se
+   agrupa por "tema 1, tema 2": todo lo que salga cuelga del tema del archivo. */
+
+const MAYUS = t => { const l = t.replace(/\([^)]*\)/g, '').replace(/[^A-Za-zÁÉÍÓÚÜÑáéíóúüñ]/g, ''); return l.length >= 4 && l === l.toUpperCase(); };
+
+const MENORES = new Set(['de', 'del', 'la', 'las', 'el', 'los', 'y', 'e', 'o', 'u', 'en', 'a', 'al', 'con', 'por', 'para', 'su', 'sus', 'un', 'una', 'que', 'se', 'lo']);
+
+/** Un título en MAYÚSCULAS a minúsculas con cada palabra importante capitalizada
+    ("LA CONQUISTA DE HISPANIA" → "La Conquista de Hispania"; así los nombres propios
+    no se pierden) y los siglos en romanos ("S. VIII" → "s. VIII"). */
+export function enFrase(t) {
+  if (!MAYUS(t)) return t;
+  const palabras = t.toLowerCase().split(/(\s+)/).map((w, i) => {
+    if (/^\s+$/.test(w)) return w;
+    if (i > 0 && MENORES.has(w)) return w;
+    return w.replace(/(^|[-(])([a-záéíóúüñ])/g, (m, pre, c) => pre + c.toUpperCase());
+  });
+  let r = palabras.join('');
+  r = r.replace(/\b(S\.|Ss\.|Siglos?)\s+([IVXLCivxlc]+)(\s*(?:-|–|al|a|y)\s*([IVXLCivxlc]+))?/g, (m, p, a2, resto, b2) =>
+    `${p.toLowerCase()} ${a2.toUpperCase()}${resto ? resto.replace(b2, b2.toUpperCase()) : ''}`);
+  r = r.replace(/([.:])\s+([a-záéíóúüñ])/g, (m, p, c) => `${p} ${c.toUpperCase()}`);
+  return r.charAt(0).toUpperCase() + r.slice(1);
+}
+
+const limpiaTituloEsquema = t => enFrase(String(t)
+  .replace(/\bReferentes?\s+\d+(\s*(?:a|y|-)\s*\d+)?\.?/gi, '')
+  .replace(/\(\s*Incluye[^)]*\)/gi, '')
+  .replace(/\s{2,}/g, ' ').replace(/[\s.]+$/, '').trim());
+
+/** El esquema de un texto: [{ c, t, n }] con n = 1 sección ("1."), 2 apartado
+    ("1.2."), 3 punto de lista ("1."). Un título largo que ocupa dos líneas se
+    junta. `c` es el código dentro del archivo ("2.4", "1.2.3"). */
+export function esquemaDeTexto(texto) {
+  const lineas = String(texto || '').split(/\r?\n/).map(l => l.replace(/\s+/g, ' ').trim());
+  // Un título que sigue en la línea de abajo ("…DESAPARICIÓN DE LA / MONARQUÍA VISIGODA (711).").
+  for (let i = 0; i < lineas.length - 1; i++) {
+    if (/^\d+(\.\d+)*\.?\s+[A-ZÁÉÍÓÚÑ]/.test(lineas[i]) && !/[.)]$/.test(lineas[i]) && MAYUS(lineas[i]) && /^[A-ZÁÉÍÓÚÑ]{3,}/.test(lineas[i + 1])
+        && !/^\d|^[-A-D]\)?\s/.test(lineas[i + 1])) { lineas[i] += ' ' + lineas[i + 1]; lineas.splice(i + 1, 1); i--; }
+  }
+  // Para dar por buena una sección "N." hay que ver que sus apartados son "N.1.".
+  const siguienteApartado = desde => { for (let j = desde; j < lineas.length; j++) { const m = /^(\d+)\.(\d+)\.?\s+[A-ZÁÉÍÓÚÑ]/.exec(lineas[j]); if (m) return `${m[1]}.${m[2]}`; } return null; };
+  const salida = [];
+  let secc = null, apart = null, ultimoPunto = 0;
+  for (let i = 0; i < lineas.length; i++) {
+    const l = lineas[i];
+    let m = /^(\d{1,2})\.\s+([A-ZÁÉÍÓÚÑ].{2,120})$/.exec(l);
+    if (m && MAYUS(m[2]) && siguienteApartado(i + 1) === `${m[1]}.1`) {
+      secc = +m[1]; apart = null; ultimoPunto = 0;
+      salida.push({ c: String(secc), t: limpiaTituloEsquema(m[2]), n: 1 }); continue;
+    }
+    m = /^(\d{1,2})\.(\d{1,2})\.?\s+([A-ZÁÉÍÓÚÑ].{2,240})$/.exec(l);
+    if (m && secc !== null && +m[1] === secc && (apart === null || +m[2] > apart)) {
+      apart = +m[2]; ultimoPunto = 0;
+      salida.push({ c: `${secc}.${apart}`, t: limpiaTituloEsquema(m[3]), n: 2 }); continue;
+    }
+    // Punto de lista: "1. El Emirato…", corto y que termina como un título.
+    m = /^(\d{1,2})\.\s+([A-ZÁÉÍÓÚÑ].{2,90}?)$/.exec(l);
+    if (m && (secc !== null) && +m[1] === ultimoPunto + 1 && (MAYUS(m[2]) || /[.)]$/.test(m[2]))) {
+      ultimoPunto = +m[1];
+      const padre = apart !== null ? `${secc}.${apart}` : String(secc);
+      salida.push({ c: `${padre}.${m[1]}`, t: limpiaTituloEsquema(m[2]), n: 3 });
+    }
+  }
+  return salida;
+}
+
 /** Del texto de un temario a los temas que contiene, ya ordenados.
     Devuelve { temas: string[], modo }; modo = 'palabra' | 'lista' | 'ninguno'. */
 export function temasDeTexto(texto) {

@@ -32,6 +32,7 @@ self.SHELL = [
   './js/core/errores.js',
   './js/core/temario.js',
   './js/core/temario-lectura.js',
+  './js/core/pdf-texto.js',
   './js/core/script-estudio.js',
   './js/core/ui.js',
   './js/core/fmt.js',

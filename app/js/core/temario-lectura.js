@@ -15,6 +15,7 @@
 
 import * as sesion from './sesion.js';
 import { reducirFoto } from './archivos.js';
+import { pdfATexto } from './pdf-texto.js';
 import { docxATexto, temasDeTexto, temasDeRespuestaIA, temaDeNombreArchivo } from './temario.js';
 
 const MAX_MB = 20;
@@ -59,7 +60,23 @@ export async function temasDeArchivo(archivo) {
   const tipo = tipoDeArchivo(archivo);
   if (!tipo) throw new Error('Formato no admitido: usa PDF, Word, foto o texto.');
   const delNombre = temaDeNombreArchivo(archivo.name);
-  if (delNombre?.completo) return { temas: [delNombre.nombre], modo: 'nombre', texto: '' };
+  const grande = archivo.size > MAX_MB * 1024 * 1024;
+
+  /* El texto del archivo, sin pasar por el servidor cuando se puede: el Word se
+     abre aquí, el texto es texto y el PDF lo lee core/pdf-texto.js (el servidor
+     no saca nada de algunos PDF con texto de verdad). Devuelve '' si no hay. */
+  const textoLocal = async () => {
+    try {
+      if (tipo === 'docx') return await docxATexto(await archivo.arrayBuffer());
+      if (tipo === 'texto') return await archivo.text();
+      if (tipo === 'pdf') return await pdfATexto(await archivo.arrayBuffer());
+    } catch { /* se intenta por el servidor o se queda el nombre */ }
+    return '';
+  };
+
+  // El nombre dice el tema ("BLOQUE 1. 1.2. …"): ese es el tema; el contenido
+  // solo sirve para sus apartados, y si no se puede leer da igual.
+  if (delNombre?.completo) return { temas: [delNombre.nombre], modo: 'nombre', texto: grande ? '' : await textoLocal() };
 
   const sinContenido = motivo => {
     if (delNombre) return { temas: [delNombre.nombre], modo: 'nombre', texto: '' };
@@ -67,16 +84,18 @@ export async function temasDeArchivo(archivo) {
   };
   // Demasiado grande para leerlo (el servidor lee hasta 20 MB): no es un error,
   // se guarda igual en Apuntes y el tema se indica a mano o con el nombre.
-  if (archivo.size > MAX_MB * 1024 * 1024) return delNombre ? sinContenido('') : { temas: [], modo: 'grande', texto: '' };
+  if (grande) return delNombre ? sinContenido('') : { temas: [], modo: 'grande', texto: '' };
 
   let texto = '';
   try {
-    if (tipo === 'docx') texto = await docxATexto(await archivo.arrayBuffer());
-    else if (tipo === 'texto') texto = await archivo.text();
-    else if (tipo === 'foto') {
+    if (tipo === 'foto') {
       const reducida = await reducirFoto(archivo);
       texto = await leerRemoto(reducida, archivo.name, reducida.type || 'image/jpeg');
-    } else texto = await leerRemoto(archivo, archivo.name, 'application/pdf');
+    } else {
+      texto = await textoLocal();
+      // Un PDF sin texto propio (escaneado) o que el lector local no entiende: lo intenta el servidor.
+      if (tipo === 'pdf' && texto.trim().length < 200) texto = await leerRemoto(archivo, archivo.name, 'application/pdf');
+    }
   } catch (e) {
     return sinContenido(e.message);
   }

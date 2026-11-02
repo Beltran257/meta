@@ -74,6 +74,10 @@ echo '✅ asignaturas y temario correctos'
 # Archivos de más de 20 MB: van en trozos; un trozo mal pegado corrompe un PDF sin avisar.
 node tools/prueba-archivos-grandes.mjs > /dev/null || { echo '❌ los archivos grandes fallan'; exit 1; }
 echo '✅ archivos grandes correctos'
+# Lector de PDF propio y esquema de un archivo-tema: si falla, un temario con
+# texto de verdad vuelve a leerse como "sin apartados" y nadie se entera.
+node tools/prueba-pdf-texto.mjs > /dev/null || { echo '❌ el lector de PDF o el esquema falla'; exit 1; }
+echo '✅ lector de PDF correcto'
 # La vigilancia: cada alarma tiene que sonar cuando toca y no sonar sin motivo.
 node tools/prueba-vigilancia.mjs > /dev/null || { echo '❌ la vigilancia falla'; exit 1; }
 echo '✅ vigilancia correcta'
