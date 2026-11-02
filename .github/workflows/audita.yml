@@ -13,6 +13,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  # Cada lunes, aunque nadie haya tocado nada: lo que se pudre solo (una versión
+  # de Node que cambia, una prueba que dependía de la fecha del día) se ve aquí
+  # y no el día que más estorba.
+  schedule:
+    - cron: '23 5 * * 1'
 
 jobs:
   audita:

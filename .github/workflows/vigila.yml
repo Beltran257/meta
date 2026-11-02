@@ -1,0 +1,62 @@
+# Vigila PRODUCCIÓN cada 6 horas, sola, sin ninguna clave de Cloudflare ni de
+# Google: solo usa endpoints públicos (tools/vigila.mjs). Si algo falla abre UNA
+# incidencia (y GitHub te avisa por correo); mientras siga fallando la mantiene
+# actualizada sin spam; cuando se arregla la cierra sola.
+#
+# Qué mira (ver tools/vigila.mjs): salud del servicio, conexión con Google, el
+# script del estudio, datos que encogen de golpe, errores de JavaScript del
+# iPad, versión de app/sw/arranque, archivos del precaché y que lo privado siga
+# pidiendo sesión. Nació del fallo de nov 2026 en que se perdieron horas de
+# estudio y no se enteró nadie en 2 semanas.
+name: vigila
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: vigila
+  cancel-in-progress: false
+
+jobs:
+  vigila:
+    name: producción de meta
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: vigilar producción
+        id: vigila
+        run: node tools/vigila.mjs
+        continue-on-error: true
+
+      - name: incidencia (abrir, mantener o cerrar)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULTADO: ${{ steps.vigila.outcome }}
+        run: |
+          titulo="🔴 Meta: la vigilancia de producción falla"
+          gh label create vigilancia --color d73a4a --description "Alertas automáticas de tools/vigila.mjs" 2>/dev/null || true
+          n=$(gh issue list --state open --label vigilancia --json number --jq '.[0].number // empty')
+          if [ "$RESULTADO" = "failure" ]; then
+            if [ -n "$n" ]; then
+              gh issue edit "$n" --body-file vigila-informe.md          # misma incidencia, informe al día, sin spam
+            else
+              gh issue create --title "$titulo" --label vigilancia --body-file vigila-informe.md
+            fi
+          elif [ -n "$n" ]; then
+            gh issue close "$n" --comment "✅ Resuelto: la última vigilancia pasa ($(date -u +%F\ %H:%M) UTC)."
+          fi
+
+      - name: marcar el trabajo como fallido si producción falla
+        if: steps.vigila.outcome == 'failure'
+        run: exit 1

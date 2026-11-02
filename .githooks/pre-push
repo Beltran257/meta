@@ -1,0 +1,13 @@
+#!/bin/bash
+# Antes de CADA git push: la misma auditoría y pruebas que exige publicar. Si algo
+# falla, el push no sale: el fallo no viaja a GitHub. (Para saltarlo a propósito:
+# SALTAR_HOOK=1 git push)
+[ "$SALTAR_HOOK" = "1" ] && exit 0
+cd "$(git rev-parse --show-toplevel)" || exit 0
+echo "🔎 pre-push: auditoría y pruebas…"
+node tools/audita.mjs > /tmp/meta-audita.txt 2>&1 || { tail -15 /tmp/meta-audita.txt; echo "❌ la auditoría falla: no se sube."; exit 1; }
+for p in tools/prueba-*.mjs; do
+  [ -e "$p" ] || continue
+  node "$p" > /tmp/meta-prueba.txt 2>&1 || { tail -15 /tmp/meta-prueba.txt; echo "❌ $p falla: no se sube."; exit 1; }
+done
+echo "✅ todo en verde"

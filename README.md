@@ -1,79 +1,146 @@
 # Meta · organizador académico
 
-> Organizador académico: horario, exámenes, tareas, apuntes y notas.
+> Organizador académico: horario, exámenes, tareas, apuntes y temario, con las
+> horas de estudio sacadas solas de tu calendario.
 > Versión desplegada: **2.0.37** · `https://meta.beltranfersan.workers.dev`
 
 ## Qué es
 
-La app académica: horario, asignaturas, exámenes, tareas, sesiones de estudio,
-apuntes (foto y PDF), notas y un análisis del estado académico.
+La app académica de Beltrán (2º de Bachillerato): horario, asignaturas,
+exámenes, tareas, apuntes (foto, PDF y texto), notas, temario por asignatura y un
+plan de "qué hago hoy". Es una PWA sin framework ni compilación sobre un
+Cloudflare Worker.
 
-Pantallas: `hoy`, `horario`, `asignaturas`, `examenes`, `tareas`, `estudiar`,
-`apuntes`, `captura`, `notas`, `analisis`, `buscar`, `perfil`, `acceso`.
+Pantallas: `hoy`, `horario`, `tareas`, `examenes`, `estudiar`, `apuntes`,
+`asignaturas`, `analisis`, `perfil`, `acceso`.
+
+La idea central (nov 2026): **la app deduce, no pide**. Meta no obliga a apuntar
+cada sesión de estudio: lee tu Google Tasks/Calendar y te pregunta solo lo que no
+puede saber.
+
+## Cómo funciona lo importante
+
+**Estudio desde el calendario.** Tú planificas en Google Tasks con hora y marcas
+las tareas cuando las haces. Un *Apps Script* que vive en TU cuenta de Google
+(se genera desde Perfil → "Estudio desde tu calendario") lee cada hora esas
+tareas y las clases particulares y se las manda a Meta con una clave propia que
+solo sirve para eso. Así no hace falta ningún permiso nuevo de Google ni
+verificar la app. `app/js/core/calendario.js` decide asignatura, tema y minutos;
+`worker/estudio.js` guarda los bloques. Dos reglas que importan:
+
+- un bloque **hecho** que desaparece del calendario (se limpian las tareas
+  completadas) **sigue contando**: ya se estudió (`fusionarBloques`);
+- lo que no se puede deducir se pregunta ("¿Lo hiciste?", "¿De qué asignatura
+  es?", "¿Qué tema era?") y se recuerda.
+
+**Temario.** Se sube el archivo del temario de cada asignatura (PDF, Word, foto o
+texto) en Asignaturas → Temario. El PDF y la foto los lee el servidor
+(`worker/temario.js`: `toMarkdown`, y un modelo de visión que *transcribe* las
+fotos), el Word se abre en el navegador. `app/js/core/temario.js` saca los temas
+(Tema N, Bloque N, listas numeradas con apartados A/B/C, índices con página,
+entradas partidas…), los ordena y los deja revisar antes de guardar. Solo si no
+encuentra estructura clara pregunta a la IA.
+
+**Examen = centro.** La ficha de cada examen marca qué temas entran, deja cambiar
+tu porcentaje de cada tema (±10 %, son estimaciones tuyas), y enseña horas
+dedicadas y apuntes por tema.
+
+**Qué hago hoy.** `motor.planDelDia`: todos los exámenes (45 días), cada tema
+pesa por lo cerca que está su examen y lo que tú dices que llevas; un examen sin
+temario genera "poner el temario"; da una vuelta por todas las asignaturas antes
+de repetir. Devuelve lo que cabe hoy y lo que seguiría ("si te sobra tiempo").
 
 ## Dónde está la inteligencia
 
 **Los números los calcula el algoritmo, no el modelo.** `app/js/core/motor.js`
 calcula estado académico, prioridades y plan — y funciona sin conexión. La IA
 (Workers AI, binding `IA`) solo **redacta y explica** lo que el motor ya ha
-decidido. Es a propósito: el modelo gratuito es flojo y una nota calculada por
-un modelo no se puede reproducir ni discutir.
+decidido, y es el último recurso para leer un temario sin estructura. Es a
+propósito: el modelo gratuito es flojo y un número calculado por un modelo no se
+puede reproducir ni discutir.
 
 ## Integraciones
 
 - **Feed ICS** al que se suscriben Google Calendar / Apple Calendar / Outlook.
-- **Google y Microsoft** (OAuth) — el `state` es un número al azar de un solo
-  uso en los dos flujos.
+- **Google** (OAuth, calendario y Drive) y **Microsoft** (Outlook del instituto,
+  solo para proponer exámenes y entregas). El `state` es un número al azar de un
+  solo uso en todos los flujos.
+- **Apps Script del estudio** (ver arriba): lee Calendar y Tasks desde la cuenta
+  del propio usuario.
 - **Notion** y **NotebookLM**: `worker/dossier.js` arma un documento por
-  asignatura que NotebookLM lee como fuente. `tools/prueba-dossier.mjs` vigila
-  sobre todo que **no se cuele contenido de una asignatura en el dossier de
-  otra** — sería lo peor que puede pasar y no se notaría.
+  asignatura (temario con tu estimación, apuntes, exámenes, notas) que NotebookLM
+  lee como fuente. `tools/prueba-dossier.mjs` vigila sobre todo que **no se cuele
+  contenido de una asignatura en el dossier de otra**.
+- **Enlace de carpeta** (`tools/enlace-carpeta.mjs`): sincroniza una carpeta del
+  Mac (asignatura/evaluación) con los apuntes de la cuenta.
 
 ## Arquitectura
 
 ```
 app/       PWA: HTML + CSS + módulos ES, sin framework y sin paso de compilación
-           shell.js  precaché y versión
-           sw.js     service worker
-           _headers   cabeceras de seguridad y caché
+           shell.js  precaché y versión · sw.js  service worker
+           js/core/  lógica (motor, calendario, temario, temas, store, sync…)
+           js/vistas/ una pantalla por archivo
 worker/    Cloudflare Worker: el router está en index.js, un archivo por área
-tools/     audita.mjs, prueba-*.mjs, backup.mjs, publica.sh
+           (estudio, temario, vigilancia, google, microsoft, notion, dossier…)
+tools/     audita.mjs, prueba-*.mjs, vigila.mjs, papelera.mjs, backup.mjs, publica.sh
+.github/   workflows (audita, vigila) y dependabot · .githooks/pre-push
 ```
 
 Un solo Worker sirve **la app y la API**: lo que no empieza por `/api/` lo
-responde el binding `ASSETS` (los estáticos), y lo demás pasa por el router.
-No hay build: lo que está en `app/` es exactamente lo que llega al navegador.
+responde el binding `ASSETS` (los estáticos), y lo demás pasa por el router. No
+hay build: lo que está en `app/` es exactamente lo que llega al navegador. Todo
+el estado del navegador pasa por `app/js/core/registry.js` (una sola lista de
+claves: copia, borrado y sincronización salen de ella).
 
 ## Cómo se trabaja
 
 ```bash
-npm run audita     # análisis estático: precaché, CSP, ids, acciones, versiones, guardas del worker
+npm run audita     # análisis estático: precaché, CSP, ids, acciones, imports, versiones, guardas del worker
 npm run prueba     # pruebas sin red (tools/prueba-*.mjs)
-npm run publica    # sube versión, audita, despliega y VERIFICA en producción
+npm run publica    # sube versión, audita, despliega, VERIFICA en producción, sube a GitHub y vigila
+npm run vigila     # revisa producción AHORA (lo mismo que corre solo cada 6 h)
+npm run hooks      # activa el guardián de git: audita y prueba antes de cada push
+npm run papelera   # recupera datos que la vigilancia vio desaparecer (ver más abajo)
 ```
 
 `tools/publica.sh` es el único camino a producción: sube la versión en
 `app/shell.js` + `app/sw.js` + `app/arranque.js` a la vez (si se descuadran,
-Safari se queda con el JS viejo), pasa la auditoría, despliega, y luego
-**comprueba contra la URL real** que la versión servida es la nueva, que el
-service worker pide el shell nuevo y que las cabeceras de seguridad siguen
-puestas. Si algo de eso no cuadra, sale con error.
+Safari se queda con el JS viejo), pasa la auditoría y **todas** las pruebas
+(hay un guardián que falla si una prueba existe y no se ejecuta aquí), despliega,
+y luego **comprueba contra la URL real** versión, service worker y cabeceras.
 
 Los secretos van con `npx wrangler secret put NOMBRE`, nunca en un archivo del
 repo. `.dev.vars` es solo para local y está en `.gitignore`.
 
 ## Qué vigila que esto no se rompa
 
-| Capa | Dónde |
-|---|---|
-| Análisis estático | `tools/audita.mjs`, obligatorio antes de cada despliegue |
-| Pruebas sin red | `tools/prueba-*.mjs` |
-| CI | `.github/workflows/audita.yml` — auditoría y pruebas en cada push y cada PR |
-| Verificación en producción | el segundo tramo de `tools/publica.sh` |
-| Logs | `[observability]` en `wrangler.toml`: 7 días de errores con traza |
-| Estado en vivo | `GET /api/salud` |
-| Vigilancia cruzada | Morning Briefing comprueba `/api/salud` de las demás una vez al día y lo dice en el informe |
-| Límite de peticiones | binding `LIMITE` (ratelimit de Cloudflare) sobre `/api/*` |
+| Capa | Dónde | Cuándo |
+|---|---|---|
+| Análisis estático (sintaxis, **imports que existen**, precaché, CSP, acciones…) | `tools/audita.mjs` | antes de publicar, en cada push/PR, cada lunes |
+| Pruebas sin red | `tools/prueba-*.mjs` | antes de publicar, en cada push/PR, cada lunes |
+| Guardián de git | `.githooks/pre-push` (`npm run hooks`) | antes de cada `git push` |
+| **Producción, de fuera** | `.github/workflows/vigila.yml` → `tools/vigila.mjs` | **cada 6 h**, sola; abre/cierra una incidencia |
+| Verificación tras desplegar | segundo tramo de `tools/publica.sh` | al publicar |
+| Estado en vivo | `GET /api/salud` | Morning Briefing, una vez al día |
+| Logs | `[observability]` en `wrangler.toml` | 7 días de errores con traza |
+| Copia de seguridad | Morning Briefing, cada noche | diaria |
+| Límite de peticiones | binding `LIMITE` sobre `/api/*` | siempre |
+| Acciones de GitHub al día | `.github/dependabot.yml` | semanal |
+
+### Qué mira `vigila` (y qué hacer si salta)
+
+`GET /api/salud` devuelve, además de limitador/cuentas/ia: `google`, `datos`,
+`estudio` y `errores`. Ninguno identifica a nadie.
+
+| Alarma | Significa | Qué hacer |
+|---|---|---|
+| `google: HAY QUE RECONECTAR` | el permiso de Google caducó o se revocó | Perfil → Volver a conectar Google |
+| `datos: ALERTA: sesiones 70→31` | una sección **encogió de golpe** al sincronizar (nació de perder ~13 h de estudio sin enterarse nadie) | `npm run papelera lista` y `npm run papelera restaura <espacio> <sección>`; la papelera guarda 30 días |
+| `estudio: ATRASADO` | el Apps Script lleva >6 h sin enviar | abrir script.google.com → "Meta estudio" → Ejecuciones; o reinstalarlo desde Perfil |
+| `errores: …` | un error de JavaScript le salió a un aparato (iPad…) | el mensaje trae archivo y línea; se corrige y publica |
+| versiones no cuadran / precaché roto | despliegue a medias: el iPad se quedaría con una mezcla de app vieja y nueva | `npm run publica` |
+| ruta privada abierta sin sesión | **fallo de seguridad** | corregir ya |
 
 ## Seguridad
 
@@ -86,6 +153,8 @@ repo. `.dev.vars` es solo para local y está en `.gitignore`.
   CSS/CSSOM. La auditoría falla si aparece alguno.
 - La contraseña se deriva en el navegador (PBKDF2-SHA256, 150.000 iteraciones)
   y nunca viaja en claro.
+- La clave del Apps Script solo entrega bloques de estudio: no abre la cuenta.
+- Lo privado pide sesión, y `vigila` lo comprueba de fuera cada 6 h.
 
 ## Límites conocidos
 
@@ -93,4 +162,8 @@ repo. `.dev.vars` es solo para local y está en `.gitignore`.
   la cuenta (aunque no cobre dentro de lo gratis). KV es gratis sin tarjeta, con
   tope de 1 GB y 25 MB por valor — de sobra para fotos y PDF de bachillerato. Si
   se queda corto, se pasa a R2 cambiando solo `worker/archivos.js`.
-- Sin cron propio (tope de 5 por cuenta).
+- Sin cron propio (tope de 5 por cuenta): lo periódico va por GitHub Actions
+  (`vigila`) y por Morning Briefing.
+- Un PDF escaneado (sin texto) no se puede leer para sacar temario: se suben
+  fotos de las páginas del índice.
+- El texto leído de un PDF en `apuntesMeta` se corta a 4.000 caracteres.

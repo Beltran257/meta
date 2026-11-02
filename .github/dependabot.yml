@@ -1,0 +1,9 @@
+# Mantiene al día las acciones de GitHub que usan los workflows (checkout,
+# setup-node). Meta no tiene dependencias de npm a propósito, así que es lo
+# único que se puede quedar viejo sin que nadie lo note.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

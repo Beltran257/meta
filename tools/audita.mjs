@@ -56,6 +56,83 @@ for (const f of losJS) {
 rmSync(tmp, { recursive: true, force: true });
 if (!rotos) bien(`Sintaxis correcta (como módulo) en ${losJS.length} archivos JS`);
 
+/* --- 2b. cada import con nombre EXISTE en el módulo al que apunta -----------
+   `node --check` solo mira la sintaxis: un `import { algo } from './x.js'` de
+   algo que ya no se exporta pasa la comprobación y revienta en el navegador al
+   cargar el módulo — y con módulos ES, un import roto tumba TODA la pantalla,
+   no solo esa función. Pasó al quitar funciones (nov 2026) y solo lo habría
+   encontrado el iPad. Aquí se resuelve cada import relativo de app/, worker/ y
+   tools/ y se comprueba que lo que pide está exportado (o que el archivo existe).
+   Los imports que no se usan se avisan aparte (código muerto). */
+{
+  // Conservador a propósito: un `image/*` dentro de una cadena NO es un comentario
+  // (una versión con regex general se comía medio archivo). Solo se quitan los
+  // bloques que EMPIEZAN la línea y los `//` precedidos de espacio (así no se
+  // toca `https://…`). Si un comentario nombra un import, cuenta como uso: el
+  // fallo es siempre hacia "no avisar", nunca hacia un falso fallo.
+  const quita = t => t.replace(/^[ \t]*\/\*[\s\S]*?\*\//gm, m => m.replace(/[^\n]/g, ' ')).replace(/(^|\s)\/\/\s.*$/gm, '$1');
+  const ficheros = [
+    ...losJS.map(f => join(APP, f)),
+    ...recorre(join(RAIZ, 'worker')).filter(f => f.endsWith('.js')),
+    ...(existsSync(join(RAIZ, 'tools')) ? recorre(join(RAIZ, 'tools')).filter(f => f.endsWith('.mjs')) : []),
+  ];
+  const cacheExports = new Map();
+  const exportsDe = f => {
+    if (cacheExports.has(f)) return cacheExports.get(f);
+    const t = quita(readFileSync(f, 'utf8'));
+    const nombres = new Set();
+    let abierto = false;
+    for (const m of t.matchAll(/export\s+(?:async\s+)?(?:function\*?|class)\s+([A-Za-z0-9_$]+)/g)) nombres.add(m[1]);
+    for (const m of t.matchAll(/export\s+(?:const|let|var)\s+([A-Za-z0-9_$]+)/g)) nombres.add(m[1]);
+    for (const m of t.matchAll(/export\s*\{([^}]*)\}(?!\s*from)/g)) for (const x of m[1].split(',')) { const n = x.trim().split(/\s+as\s+/).pop(); if (n) nombres.add(n); }
+    for (const m of t.matchAll(/export\s*\{([^}]*)\}\s*from/g)) for (const x of m[1].split(',')) { const n = x.trim().split(/\s+as\s+/).pop(); if (n) nombres.add(n); }
+    if (/export\s*\*\s*from/.test(t)) abierto = true;     // reexporta todo: no se puede comprobar
+    if (/export\s+default\b/.test(t)) nombres.add('default');
+    const r = { nombres, abierto };
+    cacheExports.set(f, r);
+    return r;
+  };
+  let rotosImp = 0, sinUsar = [];
+  for (const f of ficheros) {
+    const crudo = readFileSync(f, 'utf8'), t = quita(crudo);
+    for (const m of t.matchAll(/import\s+([^;]*?)\s+from\s+['"](\.[^'"]+)['"]/g)) {
+      const destino = join(f, '..', m[2]);
+      const rel = relative(RAIZ, f);
+      if (!existsSync(destino)) { mal(`${rel}: importa ${m[2]}, que no existe`); rotosImp++; continue; }
+      if (!destino.endsWith('.js') && !destino.endsWith('.mjs')) continue;
+      const { nombres, abierto } = exportsDe(destino);
+      const spec = m[1].trim();
+      const llaves = /\{([\s\S]*)\}/.exec(spec)?.[1];
+      const porDefecto = spec.replace(/\{[\s\S]*\}/, '').replace(/\*\s*as\s+\w+/, '').replace(/,/g, '').trim();
+      const usos = nombre => (t.match(new RegExp(`(?<![\\w$.])${nombre.replace(/\$/g, '\\$')}(?![\\w$])`, 'g')) || []).length;
+      if (llaves) {
+        for (const x of llaves.split(',')) {
+          const [pedido, local] = x.trim().split(/\s+as\s+/);
+          if (!pedido) continue;
+          if (!abierto && !nombres.has(pedido)) { mal(`${rel}: importa «${pedido}» de ${m[2]} y ese módulo no lo exporta`); rotosImp++; }
+          else if (usos(local || pedido) < 2) sinUsar.push(`${rel}: ${local || pedido}`);
+        }
+      }
+      if (porDefecto && !abierto && !nombres.has('default')) { mal(`${rel}: importa el valor por defecto de ${m[2]} y no tiene`); rotosImp++; }
+      const ns = /\*\s*as\s+(\w+)/.exec(spec)?.[1];
+      if (ns && usos(ns) < 2) sinUsar.push(`${rel}: * as ${ns}`);
+    }
+  }
+  if (!rotosImp) bien(`Todos los imports de app/, worker/ y tools/ apuntan a algo que existe (${ficheros.length} archivos)`);
+  if (sinUsar.length) ojo(`Imports que ya no se usan (${sinUsar.length}): ${sinUsar.join(' · ')}`);
+  else bien('Ningún import sin usar');
+}
+
+/* --- 2c. /api/salud devuelve todo lo que la vigilancia exige ---------------- */
+{
+  const { CAMPOS_SALUD } = await import('./vigila.mjs');
+  const idxSalud = readFileSync(join(RAIZ, 'worker/index.js'), 'utf8');
+  const cuerpo = /async function apiSalud\(env\) \{[\s\S]*?\n\}\n/.exec(idxSalud)?.[0] || '';
+  const sinCampo = CAMPOS_SALUD.filter(c => !new RegExp(`\\b${c}\\b`).test(cuerpo.slice(cuerpo.indexOf('return json'))));
+  sinCampo.length ? mal(`/api/salud no devuelve lo que exige tools/vigila.mjs: ${sinCampo.join(', ')}`)
+                  : bien(`/api/salud devuelve los ${CAMPOS_SALUD.length} campos que vigila.mjs comprueba`);
+}
+
 /* --- 3. nada de onclick con texto interpolado ------------------------------ */
 const sinComentarios = t => t
   .replace(/\/\*[\s\S]*?\*\//g, '')
@@ -196,6 +273,14 @@ const ver = shell.match(/APP_VERSION\s*=\s*'([^']+)'/)?.[1];
 const verReg = registro.match(/version:\s*'([^']+)'/)?.[1];
 ver === verReg ? bien(`Versión ${ver} igual en shell.js y en el registro`)
                : mal(`Versión descuadrada: shell.js=${ver} registry.js=${verReg}`);
+
+/* --- 5a. el README dice la versión que hay ------------------------------- */
+{
+  const v = /APP_VERSION = '([^']+)'/.exec(shell)?.[1];
+  const r = /Versión desplegada: \*\*([0-9.]+)\*\*/.exec(readFileSync(join(RAIZ, 'README.md'), 'utf8'))?.[1];
+  r === v ? bien(`El README dice la versión desplegada (${v})`)
+          : mal(`README.md dice la versión ${r} y la app es la ${v}: tools/publica.sh lo actualiza solo; si se cambió a mano, corrígelo`);
+}
 
 /* --- 5b. sw.js TIENE que cambiar de bytes en cada despliegue --------------- */
 const verSw = sw.match(/shell\.js\?v=([^'"]+)/)?.[1];

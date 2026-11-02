@@ -7,7 +7,10 @@
     "audita": "node tools/audita.mjs",
     "prueba": "for p in tools/prueba-*.mjs; do echo \"── $p\"; node \"$p\" || exit 1; done",
     "publica": "./tools/publica.sh",
-    "backup": "node tools/backup.mjs"
+    "backup": "node tools/backup.mjs",
+    "vigila": "node tools/vigila.mjs",
+    "hooks": "git config core.hooksPath .githooks",
+    "papelera": "node tools/papelera.mjs"
   },
   "keywords": [],
   "author": "",

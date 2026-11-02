@@ -5,6 +5,15 @@
 set -e
 cd "$(dirname "$0")/.."
 
+# Lo desplegado tiene que ser EXACTAMENTE lo que hay en GitHub. Con cambios sin
+# commitear se desplegaría algo que no está en ningún sitio más: si luego se
+# pierde el Mac, producción tendría código que no existe en el repo. (Pasó con la
+# 2.0.28: el salto de versión se quedó sin commit.)
+if [ -z "$PUBLICA_SUCIO" ] && [ -n "$(git status --porcelain)" ]; then
+  echo "❌ hay cambios sin commitear:"; git status --short | head -10
+  echo "   Commitea antes de publicar (o PUBLICA_SUCIO=1 para saltarlo a propósito)."; exit 1
+fi
+
 ACTUAL=$(grep -o "APP_VERSION = '[^']*'" app/shell.js | cut -d"'" -f2)
 NUEVA=$(echo "$ACTUAL" | awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}')
 
@@ -18,6 +27,8 @@ sed -i '' "s|shell.js?v=$ACTUAL|shell.js?v=$NUEVA|" app/sw.js
 # JavaScript viejo. Ver app/arranque.js.
 sed -i '' "s|var VERSION = '$ACTUAL'|var VERSION = '$NUEVA'|" app/arranque.js
 sed -i '' "s|arranque.js?v=$ACTUAL|arranque.js?v=$NUEVA|" app/index.html
+# El README tiene que decir la versión que se publica (la auditoría lo exige).
+sed -i '' "s/Versión desplegada: \*\*[0-9.]*\*\*/Versión desplegada: **$NUEVA**/" README.md
 echo "versión $ACTUAL → $NUEVA"
 
 node tools/audita.mjs
@@ -60,6 +71,9 @@ echo '✅ estudio desde el calendario correcto'
 # se ve, solo faltan horas, casillas o apuntes.
 node tools/prueba-asignaturas.mjs > /dev/null || { echo '❌ fusionar asignaturas o el temario falla'; exit 1; }
 echo '✅ asignaturas y temario correctos'
+# La vigilancia: cada alarma tiene que sonar cuando toca y no sonar sin motivo.
+node tools/prueba-vigilancia.mjs > /dev/null || { echo '❌ la vigilancia falla'; exit 1; }
+echo '✅ vigilancia correcta'
 # Sacar los temas de un PDF/Word/foto: un tema que falta o con otro número no se
 # ve, se cree. Textos tal como los suelta un PDF de verdad.
 node tools/prueba-temario.mjs > /dev/null || { echo '❌ leer el temario de un archivo falla'; exit 1; }
@@ -121,6 +135,14 @@ else
   exit 1
 fi
 
+# El salto de versión se commitea AQUÍ, con producción ya verificada (el README ya
+# lo refleja, ver arriba): antes se hacía a mano y se olvidaba (el README llegó a
+# decir 2.0.23 con la 2.0.37 en producción).
+git add app/shell.js app/sw.js app/arranque.js app/index.html app/js/core/registry.js README.md
+git commit -q -m "Publicada la v$NUEVA
+
+Co-Authored-By: Claude <noreply@anthropic.com>" || true
+
 # GitHub va AL FINAL, con producción ya verificada: un fallo aquí solo avisa
 # (lo desplegado ya está bien) en vez de tumbar la publicación. Mismo criterio
 # que bolsa y salud. Si no hay remoto configurado, no dice nada.
@@ -128,3 +150,11 @@ if git remote get-url origin > /dev/null 2>&1; then
   echo "subiendo commits a GitHub…"
   git push origin main || echo "⚠️  no se pudo subir a GitHub — revisar a mano con: git push"
 fi
+
+# La misma vigilancia que corre sola cada 6 h desde GitHub, ahora mismo y contra
+# lo recién desplegado. Informativa: ya se ha desplegado y subido, no se puede
+# deshacer aquí, pero así se ve en el acto si algo de fuera (Google, el script
+# del estudio…) o algo que el despliegue no ha cubierto está mal.
+echo "vigilando producción…"
+node tools/vigila.mjs | sed -n '1,25p' || echo "⚠️  la vigilancia encuentra fallos: ver arriba (también se abrirá una incidencia en GitHub)"
+
