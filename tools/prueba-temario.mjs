@@ -310,6 +310,9 @@ igual('tipo de archivo por extensión o MIME',
   const g1 = T.apartadosDeTexto(v1);
   igual('apartados por tema, sin fórmulas ni cifras', g1.map(g => [g.num, g.apartados.map(a => a.c)]), [[1, ['1.1', '1.2']], [3, ['3.1']]]);
   const t1 = T.temasDeTexto(v1).temas;
+  const sub = T.apartadosDeTexto('TEMA 1 · MATRICES\n1.2  Tipos de matrices\n1.2.1  Matriz identidad (cuadrada)......4\n1.6  Matriz inversa de orden 3......16\n3.4  Problema (ejercicio 18, pág. 71)\n');
+  igual('subapartados, números dentro del título y página al final', sub.map(g => g.apartados.map(a => [a.c, a.t, a.n])),
+    [[['1.2', 'Tipos de matrices', 2], ['1.2.1', 'Matriz identidad (cuadrada)', 3], ['1.6', 'Matriz inversa de orden 3', 2]], [['3.4', 'Problema (ejercicio 18, pág. 71)', 2]]]);
   igual('los temas del archivo', t1, ['Tema 1. Matrices', 'Tema 3. Sistemas de ecuaciones']);
   guardar('temas', []);
   igual('primera subida: todo es nuevo', novedadesDeTemario('mat', t1, g1).nuevos, t1);

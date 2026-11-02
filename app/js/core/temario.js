@@ -174,25 +174,30 @@ const lineasDe = texto => desglosa(texto).split('\n')
 /** Si el título de una entrada no es legible ("TEMA2ELPENSAMIENTODEPLATON"). */
 const ilegible = rest => rest && !/\s/.test(rest) && rest.length > 18;
 
-/** Los apartados "1.1 Título" de cada tema, agrupados por número de tema. Mira
-    el índice Y los títulos del cuerpo (un apartado que solo está en el cuerpo,
-    por ser nuevo, también cuenta). Sirve para saber, al volver a subir un
-    archivo que se va ampliando, qué apartados son nuevos.
-    → [{ num, apartados: [{ c: '1.1', t: 'Definición y notación' }] }] */
+/** Los apartados y subapartados ("1.1 Título", "1.2.1 Título") de cada tema,
+    agrupados por número de tema. Mira el índice Y los títulos del cuerpo (uno
+    que solo está en el cuerpo, por ser nuevo, también cuenta). Sirve para saber,
+    al volver a subir un archivo que se va ampliando, qué hay de nuevo.
+    → [{ num, apartados: [{ c: '1.2.1', t: 'Matriz identidad', n: 3 }] }]
+    (n = nivel: 2 apartado, 3 subapartado), en orden de lectura del índice. */
 export function apartadosDeTexto(texto) {
   const porTema = new Map();
   for (const crudo of String(texto || '').split(/\r?\n/)) {
-    const l = crudo.replace(/^[#>*\s_-]+/, '').replace(/[*_]+$/, '').replace(/\s*\.{3,}\s*\d*\s*$/, '').replace(/\s+\d{1,3}$/, '').trim();
-    const m = /^(\d{1,2})\.(\d{1,2})\s+([A-ZÁÉÍÓÚÑ][^\n]{2,80})$/.exec(l);
-    if (!m || /[=∈]|\d{2,}/.test(m[3])) continue;                  // fórmulas y cifras de ejemplos no son títulos
-    const [, num, sub, titulo] = m;
+    const l = crudo.replace(/^[#>*\s_-]+/, '').replace(/[*_]+$/, '').replace(/\s*\.{3,}\s*\d*\s*$/, '').replace(/\s{2,}\d{1,3}$/, '').trim();     // número de página tras un hueco ("orden 3" no es página)
+    const m = /^(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?\s+([A-ZÁÉÍÓÚÑ][^\n]{2,100})$/.exec(l);
+    if (!m || /[=∈]/.test(m[4])) continue;                          // fórmulas y cifras de ejemplos no son títulos
+    const [, num, sub, subsub, titulo] = m;
+    const c = subsub ? `${num}.${sub}.${subsub}` : `${num}.${sub}`;
     const lista = porTema.get(+num) || new Map();
-    const previo = lista.get(+sub);
-    if (!previo || titulo.length > previo.length) lista.set(+sub, titulo.replace(/\s{2,}/g, ' ').trim());
+    const previo = lista.get(c);
+    const limpio = titulo.replace(/\s{2,}/g, ' ').trim();
+    if (!previo || limpio.length > previo.t.length) lista.set(c, { c, t: limpio, n: subsub ? 3 : 2 });
     porTema.set(+num, lista);
   }
-  return [...porTema.entries()].sort((a, b) => a[0] - b[0]).map(([num, lista]) => ({
-    num, apartados: [...lista.entries()].sort((a, b) => a[0] - b[0]).map(([sub, t]) => ({ c: `${num}.${sub}`, t })),
+  const clave = c => c.split('.').map(Number);
+  const cmp = (x, y) => { const a = clave(x), b = clave(y); for (let i = 0; i < 3; i++) { const d = (a[i] ?? -1) - (b[i] ?? -1); if (d) return d; } return 0; };
+  return [...porTema.entries()].sort((x, y) => x[0] - y[0]).map(([num, lista]) => ({
+    num, apartados: [...lista.values()].sort((x, y) => cmp(x.c, y.c)),
   }));
 }
 

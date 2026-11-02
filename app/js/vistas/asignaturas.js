@@ -330,7 +330,7 @@ accion('tema-abrir', d => {
       ${(t.apartados || []).length ? `
         <div class="seccion-cab"><h2>Apartados</h2><span class="apag">${t.apartados.length}</span></div>
         <ul class="lista suelta">
-          ${t.apartados.map(a => `<li class="fila"><span class="izq"><span class="t1">${escapa(a.c)} ${escapa(a.t)}</span></span>${a.desde && Date.now() - a.desde < 21 * 864e5 ? '<span class="der"><span class="pil bien">nuevo</span></span>' : ''}</li>`).join('')}
+          ${t.apartados.map(a => `<li class="fila ${a.n === 3 ? 'sub' : ''}"><span class="izq"><span class="t1">${escapa(a.c)} ${escapa(a.t)}</span></span>${a.desde && Date.now() - a.desde < 21 * 864e5 ? '<span class="der"><span class="pil bien">nuevo</span></span>' : ''}</li>`).join('')}
         </ul>` : ''}
 
       <div class="parrafo chico">
