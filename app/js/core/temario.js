@@ -77,7 +77,10 @@ export function limpiaNombre(t) {
     .replace(/\s+/g, ' ')
     .replace(/[\s.,;:–—-]+$/, '')
     .trim();
-  if (x && x === x.toUpperCase() && /[A-ZÁÉÍÓÚÑ]{3}/.test(x)) x = x.charAt(0) + x.slice(1).toLowerCase();
+  if (x && x === x.toUpperCase() && /[A-ZÁÉÍÓÚÑ]{3}/.test(x)) {
+    // Todo en mayúsculas → minúsculas, pero los números romanos se quedan ("siglo XIX", "Felipe V").
+    x = x.toLowerCase().replace(/\b[ivxlcm]{1,6}\b/g, w => (/^m{0,3}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$/.test(w) && !['mi', 'di', 'vi', 'li', 'ci', 'mil', 'dim'].includes(w) ? w.toUpperCase() : w));
+  }
   return x.charAt(0).toUpperCase() + x.slice(1);
 }
 
@@ -261,6 +264,31 @@ export function temasDeTitulos(titulos) {
       : `${nombreDePalabra(m[1])} ${/^\d+$/.test(m[2]) ? m[2] : deRomano(m[2].toUpperCase())}`);
   }
   return unirNombres([arreglados]);
+}
+
+/* ----------------------- el tema que dice el NOMBRE del archivo ------------- */
+
+/* Palabras que un nombre de archivo añade y no son parte del tema. */
+const RUIDO_NOMBRE = /(?:\s+|^)(libro|apuntes?|resumen|esquema|copia|final|definitivo|escaneado|scan|pdf|docx?|v\d+)(?=\s*$|\s*\(\d+\)\s*$)/i;
+
+/** Muchos temarios llegan como UN ARCHIVO POR TEMA ("TEMA_1_REALISMO_Y_NATURALISMO_LIBRO.pdf"):
+    el nombre ya dice cuál es, y es más fiable que leer el contenido (un capítulo de
+    libro no trae un índice, y un escaneado no trae texto). Devuelve
+    { nombre, completo } o null: `completo` = el nombre trae también el título del
+    tema, no solo el número ("Tema 3" a secas → se intenta mejorar leyendo el archivo). */
+export function temaDeNombreArchivo(nombreArchivo) {
+  let x = String(nombreArchivo || '').replace(/\.[a-z0-9]{2,5}$/i, '').replace(/[_]+/g, ' ')
+    .replace(new RegExp(`^(\\s*(?:${PALABRAS}))\\s*(\\d+)(?=\\p{L})`, 'iu'), '$1 $2 ')
+    .replace(/\s{2,}/g, ' ').trim();
+  x = x.replace(/\s*\(\d+\)\s*$/, '').replace(/\s*[-–]\s*copia\s*$/i, '');            // "Tema 5 (1)", "Tema 5 - copia"
+  for (let i = 0; i < 3; i++) x = x.replace(RUIDO_NOMBRE, '').trim();          // "… LIBRO"
+  const m = RE_ENTRADA.exec(x);
+  if (!m) return null;
+  const num = /^\d+$/.test(m[2]) ? +m[2] : deRomano(m[2].toUpperCase());
+  if (!num || num > 60) return null;
+  const titulo = ilegible(m[3].trim()) ? '' : limpiaNombre(m[3].replace(/^\s*[.:\-–—·)]+\s*/, ''));
+  const palabra = nombreDePalabra(m[1]);
+  return { nombre: titulo ? `${palabra} ${num}. ${titulo}` : `${palabra} ${num}`, completo: !!titulo };
 }
 
 /* --------------------------- apuntes -> tema ------------------------------ */

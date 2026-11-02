@@ -21,6 +21,7 @@ globalThis.localStorage = {
 };
 
 const T = await import('../app/js/core/temario.js');
+const { temasDeArchivo } = await import('../app/js/core/temario-lectura.js');
 const { guardar, leer } = await import('../app/js/core/store.js');
 const { crearTemas, temasDe, enlazarApuntes } = await import('../app/js/core/temas.js');
 const { tipoDeArchivo } = await import('../app/js/core/temario-lectura.js');
@@ -151,6 +152,39 @@ igual('una lista numerada normal queda como "1. título"',
 
 igual('con menos de 3 entradas numeradas no se fía (podría ser una enumeración dentro de un párrafo)',
   T.temasDeTexto('Pasos:\n1. Leer\n2. Subrayar').modo, 'ninguno');
+
+/* -------------- el nombre del archivo ES el tema (un archivo por tema) -------- */
+igual('los nombres reales de los PDF de Lengua dan su tema',
+  ['TEMA_1_REALISMO_Y_NATURALISMO_LIBRO.pdf', 'TEMA_2_MODERNISMO_GENERACIÓN_DEL_98.pdf', 'TEMA 1 EL NACIMIENTO DE LA FILOSOFÍA.pdf', 'TEMA2ELPENSAMIENTODEPLATON.pdf',
+    'Tema 3.pdf', 'TEMA_3_ARISTO_TELES_Y_EL_HELENISMO.pdf', 'BLOQUE 4..pdf', 'Tema 5 (1).pdf', 'TEMA_7_LA_NOVELA_DEL_SIGLO_XIX_RESUMEN.docx'].map(n => T.temaDeNombreArchivo(n)),
+  [{ nombre: 'Tema 1. Realismo y naturalismo', completo: true }, { nombre: 'Tema 2. Modernismo generación del 98', completo: true },
+    { nombre: 'Tema 1. El nacimiento de la filosofía', completo: true }, { nombre: 'Tema 2', completo: false },
+    { nombre: 'Tema 3', completo: false }, { nombre: 'Tema 3. Aristo teles y el helenismo', completo: true }, { nombre: 'Bloque 4', completo: false },
+    { nombre: 'Tema 5', completo: false }, { nombre: 'Tema 7. La novela del siglo XIX', completo: true }]);
+igual('un nombre que no dice tema no inventa nada', ['Documento escaneado.pdf', 'GUÍA TEMARIO.pdf', 'COMPENDIO_HISTORIA_DEL_ARTE.pdf', 'jk.pdf'].map(n => T.temaDeNombreArchivo(n)), [null, null, null, null]);
+
+{
+  // Lo que falló con los PDF reales: 40 MB y escaneado, y un capítulo sin índice. Con el nombre, NO se lee nada.
+  let tocoLaRed = false;
+  const falso = (name, size) => ({ name, size, type: 'application/pdf', arrayBuffer() { tocoLaRed = true; throw new Error('no se debe leer'); }, text() { tocoLaRed = true; throw new Error('no se debe leer'); } });
+  const grande = await temasDeArchivo(falso('TEMA_2_MODERNISMO_GENERACIÓN_DEL_98.pdf', 45 * 1024 * 1024));
+  igual('un PDF de 45 MB cuyo nombre dice el tema NO da error ni se lee', [grande.temas, grande.modo, tocoLaRed], [['Tema 2. Modernismo generación del 98'], 'nombre', false]);
+  const capitulo = await temasDeArchivo(falso('TEMA_1_REALISMO_Y_NATURALISMO_LIBRO.pdf', 3 * 1024 * 1024));
+  igual('un capítulo de libro (sin índice) da su tema por el nombre', capitulo.temas, ['Tema 1. Realismo y naturalismo']);
+  // "Tema 3.pdf" a secas con un archivo ilegible: se queda el número, no hay error.
+  const solo = await temasDeArchivo({ name: 'Tema 3.pdf', size: 30 * 1024 * 1024, type: 'application/pdf' });
+  igual('"Tema 3.pdf" enorme: se queda "Tema 3" en vez de fallar', solo.temas, ['Tema 3']);
+  // Sin nombre útil y demasiado grande: sí es un error, con una frase que dice qué hacer.
+  let msg = '';
+  try { await temasDeArchivo({ name: 'cosas.pdf', size: 30 * 1024 * 1024, type: 'application/pdf' }); } catch (e) { msg = e.message; }
+  /20 MB.*Tema N/.test(msg) ? bien('sin nombre útil y demasiado grande: error que dice qué hacer') : mal(`mensaje: ${msg}`);
+  // Un texto con índice y nombre genérico sigue funcionando por contenido.
+  const idx = await temasDeArchivo({ name: 'indice.txt', size: 100, type: 'text/plain', text: async () => 'Tema 1. Uno\nTema 2. Dos\nTema 3. Tres' });
+  igual('un índice por contenido sigue funcionando', [idx.temas.length, idx.modo], [3, 'palabra']);
+  // "Tema 3.txt" con el título en el contenido: gana el del contenido.
+  const mejora = await temasDeArchivo({ name: 'Tema 3.txt', size: 100, type: 'text/plain', text: async () => 'Tema 3. La novela realista\nContenido…\nTema 4. Otra' });
+  igual('"Tema 3" a secas se mejora con el título que trae el contenido', mejora.temas, ['Tema 3. La novela realista']);
+}
 
 /* ----------------------------- 3. arreglo de texto ------------------------- */
 igual('reparaTexto arregla las consonantes sueltas del PDF y respeta las palabras de una letra',

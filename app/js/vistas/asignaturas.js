@@ -413,9 +413,9 @@ export function abrirTemarioLote(asignaturaId) {
             ponLineas(ta, nuevos);
             estados[i] = { nombre: f.name, ok: r.temas.length > 0,
               texto: r.temas.length
-                ? `${r.temas.length} ${r.temas.length === 1 ? 'tema' : 'temas'}${r.modo === 'ia' ? ' (con IA: revísalos)' : ''}`
+                ? `${r.temas.length} ${r.temas.length === 1 ? 'tema' : 'temas'}${r.modo === 'ia' ? ' (con IA: revísalos)' : r.modo === 'nombre' ? ' · el que dice el nombre del archivo' : ''}`
                 : 'Lo he leído pero no encuentro temas claros. Pega el índice a mano o prueba con otra página.' };
-            if (['pdf', 'foto'].includes(tipoDeArchivo(f))) archivosTemario.push(f);
+            if (['pdf', 'foto'].includes(tipoDeArchivo(f))) archivosTemario.push({ f, tema: r.modo === 'nombre' ? r.temas[0] : null });
           } catch (e) {
             estados[i] = { nombre: f.name, ok: false, texto: e.message || 'No se pudo leer' };
           }
@@ -447,11 +447,15 @@ accion('tema-lote-guardar', async (d, el) => {
   let guardados = 0;
   if (guardarArchivos) {
     const existentes = new Set(leer('apuntesMeta', []).filter(x => x.asignaturaId === d.id).map(x => norma(x.titulo)));
-    for (const f of archivosTemario) {
-      const titulo = `Temario · ${f.name.replace(/\.[a-z0-9]+$/i, '')}`;
+    for (const { f, tema } of archivosTemario) {
+      // Un archivo que ES un tema se guarda con su nombre y ya colgado de él;
+      // un índice o una guía, como "Temario · …".
+      const base = f.name.replace(/\.[a-z0-9]+$/i, '').replace(/_+/g, ' ').trim();
+      const titulo = tema ? base : `Temario · ${base}`;
       if (existentes.has(norma(titulo))) continue;
+      const temaId = tema ? temasDe(d.id).find(t => norma(t.nombre) === norma(tema))?.id || null : null;
       try {
-        await guardarArchivoApunte({ archivo: f, tipo: tipoDeArchivo(f), titulo, asignaturaId: d.id });
+        await guardarArchivoApunte({ archivo: f, tipo: tipoDeArchivo(f), titulo, asignaturaId: d.id, temaId });
         guardados++;
       } catch { /* un archivo que no se guarda no impide guardar los temas */ }
     }
