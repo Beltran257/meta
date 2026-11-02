@@ -444,7 +444,7 @@ export function abrirTemarioLote(asignaturaId) {
               nSub ? (items.length ? `${nSub} subtemas` : `${nSub} apartados y subapartados`) : '',
               nov.nuevos.length ? `nuevos: ${nov.nuevos.join(', ')}` : '',
               nov.ampliados.length ? `apartados nuevos en ${nov.ampliados.map(x => `${x.tema} (${x.apartados.join(', ')})`).join('; ')}` : '',
-              nov.conocidos.length ? `ya tenías ${nov.conocidos.length > 4 ? nov.conocidos.length : nov.conocidos.map(n => codigoDe(n) || n.split('.')[0]).join(', ')}` : '',
+              nov.conocidos.length ? `ya tenías ${nov.conocidos.length > 4 ? nov.conocidos.length : nov.conocidos.map(n => codigoDe(n) || n).join(', ')}` : '',
             ].filter(Boolean).join(' · ');
             estados[i] = { nombre: f.name, ok: r.temas.length > 0 || r.modo === 'grande',
               texto: r.modo === 'grande' ? 'Es muy grande para leerlo: se guarda en Apuntes igualmente. Para sacar sus temas, ponle "Tema N …" al nombre o pega el índice.'
