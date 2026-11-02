@@ -14,7 +14,7 @@
    =========================================================================== */
 
 import { leer } from './store.js';
-import { hoyLocal, diasHasta, aFecha, sumaDias, aMinutos, minutosAhora, pct } from './fmt.js';
+import { hoyLocal, diasHasta, aFecha, sumaDias, aMinutos, minutosAhora, pct, duracion } from './fmt.js';
 import { listaTemas, temasDe, dominioMedio } from './temas.js';
 import { listaAsignaturas, asignaturaDe, contenido } from './asignaturas.js';
 
@@ -462,20 +462,39 @@ function bloque(minutos, que, detalle, extra = {}) {
   return { minutos: Math.round(minutos), que, detalle, ...extra };
 }
 
-export function planDelDia({ minutos, fecha = hoyLocal() } = {}) {
-  let libres = minutos != null ? minutos : minutosLibresHoy();
-  const plan = [];
-  if (libres < MIN_BLOQUE) return { plan, libres, motivo: 'sin-tiempo' };
+/* ---------------------------- QUÉ HAGO HOY ---------------------------------
+   Reescrito en nov 2026 con los datos reales: el plan solo miraba exámenes a
+   21 días o menos, callaba si un examen no tenía temario y se cortaba a las 2
+   líneas porque solo repartía el tiempo libre de hoy. Ahora:
 
+   · Mira TODOS los exámenes (45 días) y pondera cada tema por lo cerca que
+     está su examen y por lo que él mismo dice que lleva (su porcentaje).
+   · Un examen SIN temario es lo primero que se recomienda arreglar: sin temario
+     no se puede decir qué estudiar (y es justo donde más falta hacía).
+   · Una asignatura con examen cerca y casi sin horas en 2 semanas sube; una que
+     ya ha estudiado mucho HOY baja (variedad, y no es la que más falta).
+   · En una asignatura a 0 % propone el SIGUIENTE tema en orden (A1, luego A2…).
+   · Devuelve dos cosas: `plan` (lo que cabe en su tiempo de hoy) y `extra` (lo
+     que seguiría si da más), en el mismo orden de prioridad. */
+
+const URGENCIA_EXAMEN = dias => 100 / (1 + Math.max(0, dias) / 7);   // 1 día→87 · 7→50 · 17→29 · 22→24 · 45→13
+const HORIZONTE_PLAN = 45;
+
+const minutosDeAsig = (asigId, desde, hasta = '9999-12-31') => listaSesiones()
+  .filter(s => s.asignaturaId === asigId && s.fecha >= desde && s.fecha <= hasta)
+  .reduce((t, s) => t + (s.minutos || 0), 0);
+
+export function planDelDia({ minutos, fecha = hoyLocal() } = {}) {
+  const libres0 = minutos != null ? minutos : minutosLibresHoy();
   const candidatos = [];
 
-  /* 1. Tareas que vencen ya. */
+  /* 1. Tareas que vencen ya (las de siempre: van por delante de todo). */
   for (const t of priorizadas()) {
     const d = diasHasta(t.fecha);
     if (t.tipo === 'examen' || d > 1) continue;
     const a = asignaturaDe(t.asignaturaId);
     candidatos.push({
-      peso: 100 + urgenciaDe(t.fecha),
+      peso: 200 + urgenciaDe(t.fecha),
       minutos: Math.min(MAX_BLOQUE, Math.max(MIN_BLOQUE, t.duracion || 40)),
       que: t.titulo,
       detalle: `${a ? a.nombre + ' · ' : ''}${d < 0 ? 'atrasada' : d === 0 ? 'para hoy' : 'para mañana'}`,
@@ -484,30 +503,55 @@ export function planDelDia({ minutos, fecha = hoyLocal() } = {}) {
     });
   }
 
-  /* 2. Exámenes cercanos, tema a tema y empezando por el más flojo. */
-  for (const e of examenesProximos(21)) {
+  /* 2. Exámenes: tema a tema (los que peor lleva, en orden) o, si no hay
+        temario, "ponerlo". */
+  const hace14 = sumaDias(fecha, -14);
+  const hoyPorAsig = id => minutosDeAsig(id, fecha, fecha);
+  const apuntes = leer('apuntesMeta', []);
+  const asigVistas = new Set();
+  for (const e of examenesProximos(HORIZONTE_PLAN)) {
     const dias = Math.max(1, diasHasta(e.fecha));
-    const temas = temarioDe(e).slice().sort((x, y) => (x.dominio || 0) - (y.dominio || 0));
     const a = asignaturaDe(e.asignaturaId);
-    for (const t of temas.slice(0, 3)) {
-      if ((t.dominio || 0) >= 85) continue;
+    if (!a) continue;
+    const recientes = minutosDeAsig(a.id, hace14);
+    const sinHoras = recientes < 30;
+    const empuje = (sinHoras ? 6 : 0) - (hoyPorAsig(a.id) >= 60 ? 8 : 0);
+    const cuando = `examen en ${dias} ${dias === 1 ? 'día' : 'días'}`;
+    const temas = temarioDe(e).slice().sort((x, y) => (x.dominio || 0) - (y.dominio || 0));   // el orden del temario desempata
+
+    if (!temas.length) {
+      if (asigVistas.has(a.id)) continue;               // un aviso por asignatura, aunque tenga dos exámenes
+      asigVistas.add(a.id);
+      const sinApuntes = !apuntes.some(x => x.asignaturaId === a.id);
       candidatos.push({
-        peso: 90 - dias * 2 + (100 - (t.dominio || 0)) * .35,
-        minutos: (t.dominio || 0) < 40 ? MAX_BLOQUE : 35,
+        peso: URGENCIA_EXAMEN(dias) * 1.25 + 4,
+        minutos: 10, minMin: 10,
+        que: `Poner el temario de ${a.nombre}`,
+        detalle: `${a.nombre} · ${cuando} y sin temario${sinApuntes ? ' ni apuntes' : ''}: sin él no puedo decirte qué estudiar`,
+        asignaturaId: a.id, examenId: e.id,
+        tipo: 'temario', refId: a.id,
+      });
+      continue;
+    }
+    for (const t of temas.filter(x => (x.dominio || 0) < 85).slice(0, 2)) {
+      const d = t.dominio || 0;
+      candidatos.push({
+        peso: URGENCIA_EXAMEN(dias) * (0.35 + 0.65 * (100 - d) / 100) + empuje,
+        minutos: d < 40 ? 50 : d < 70 ? 40 : 30,
         que: t.nombre,
-        detalle: `${a ? a.nombre + ' · ' : ''}${e.titulo} en ${dias} ${dias === 1 ? 'día' : 'días'} · dominio ${t.dominio || 0}%`,
-        asignaturaId: e.asignaturaId,
+        detalle: `${a.nombre} · ${cuando} · lo llevas a ${d}%${sinHoras ? ` · ${recientes ? duracion(recientes) : '0 h'} esta quincena` : ''}`,
+        asignaturaId: a.id, examenId: e.id,
         tipo: 'tema', refId: t.id,
       });
     }
   }
 
-  /* 3. Repasos que ya tocaban. */
+  /* 3. Repasos que ya tocaban (menos que un examen cercano). */
   for (const t of listaTemas()) {
     if (!t.proximoRepaso || t.proximoRepaso > fecha) continue;
     const a = asignaturaDe(t.asignaturaId);
     candidatos.push({
-      peso: 45 + Math.min(20, -diasHasta(t.proximoRepaso)),
+      peso: 14 + Math.min(10, -diasHasta(t.proximoRepaso)),
       minutos: MIN_BLOQUE,
       que: `Repaso: ${t.nombre}`,
       detalle: `${a ? a.nombre + ' · ' : ''}tocaba el ${t.proximoRepaso}`,
@@ -518,34 +562,56 @@ export function planDelDia({ minutos, fecha = hoyLocal() } = {}) {
 
   candidatos.sort((x, y) => y.peso - x.peso);
 
-  /* Reparto: se evita encadenar dos bloques de la misma asignatura si queda
-     otra cosa por hacer — cambiar de asignatura cansa menos y cunde más. */
+  /* Orden: por peso, pero (1) cada bloque que ya sale de una asignatura resta 12
+     puntos al siguiente de ella, así se da una vuelta por TODAS las asignaturas
+     con examen antes de repetir (con 53 temas a 0 % no puede salir todo de
+     Historia); (2) sin encadenar dos bloques de la misma asignatura si hay otra
+     cosa (cambiar cansa menos y cunde más); (3) sin repetir un tema (puede entrar
+     por su examen y por su repaso vencido). */
+  const orden = [];
+  const usados = new Set(), yaEnPlan = new Set(), porAsig = new Map();
+  const ajustado = c => c.peso - 12 * (porAsig.get(c.asignaturaId) || 0);
+  const mejor = pred => {
+    let k = -1;
+    candidatos.forEach((c, idx) => {
+      if (usados.has(idx) || yaEnPlan.has(c.refId) || !pred(c)) return;
+      if (k === -1 || ajustado(c) > ajustado(candidatos[k])) k = idx;
+    });
+    return k;
+  };
   let ultimaAsig = null;
-  const usados = new Set();
-  /* Un mismo tema puede aparecer DOS veces en `candidatos`: una por el examen
-     que lo incluye (paso 2) y otra por tener el repaso vencido (paso 3).
-     `usados` va por índice de candidato, así que sin esto el plan del día
-     gastaba dos bloques en el mismo tema — "Trigonometría" y "Repaso:
-     Trigonometría" seguidos, de un tiempo que ya es escaso. */
-  const yaEnPlan = new Set();
-  const libre = (c, idx) => !usados.has(idx) && !yaEnPlan.has(c.refId);
-  while (libres >= MIN_BLOQUE && plan.length < 6) {
-    // Primero se busca algo de OTRA asignatura; si no queda, vale cualquiera.
-    let i = candidatos.findIndex((c, idx) => libre(c, idx) && c.asignaturaId !== ultimaAsig);
-    if (i === -1) i = candidatos.findIndex(libre);
+  while (orden.length < 8) {
+    let i = mejor(c => c.asignaturaId !== ultimaAsig);
+    if (i === -1) i = mejor(() => true);
     if (i === -1) break;
-
     const c = candidatos[i];
-    usados.add(i);
-    yaEnPlan.add(c.refId);
-    const min = Math.min(c.minutos, libres);
-    if (min < MIN_BLOQUE) break;
-    plan.push(bloque(min, c.que, c.detalle, { tipo: c.tipo, refId: c.refId, asignaturaId: c.asignaturaId }));
-    libres -= min;
+    usados.add(i); yaEnPlan.add(c.refId);
+    porAsig.set(c.asignaturaId, (porAsig.get(c.asignaturaId) || 0) + 1);
+    orden.push(c);
     ultimaAsig = c.asignaturaId;
   }
 
-  return { plan, libres: Math.max(0, libres), motivo: plan.length ? 'ok' : 'nada-que-hacer' };
+  /* Lo que cabe en su tiempo de hoy, y lo que seguiría si da más. */
+  let libres = libres0;
+  const plan = [], extra = [];
+  let cabe = libres0 >= MIN_BLOQUE;
+  for (const c of orden) {
+    const minimo = c.minMin ?? MIN_BLOQUE;
+    const extras = { tipo: c.tipo, refId: c.refId, asignaturaId: c.asignaturaId, examenId: c.examenId };
+    if (cabe && libres >= minimo) {
+      const min = Math.min(c.minutos, libres);
+      plan.push(bloque(min, c.que, c.detalle, extras));
+      libres -= min;
+    } else {
+      cabe = false;
+      extra.push(bloque(c.minutos, c.que, c.detalle, extras));
+    }
+  }
+
+  return {
+    plan, extra, libres: Math.max(0, libres),
+    motivo: libres0 < MIN_BLOQUE ? 'sin-tiempo' : plan.length ? 'ok' : 'nada-que-hacer',
+  };
 }
 
 /* ===========================================================================

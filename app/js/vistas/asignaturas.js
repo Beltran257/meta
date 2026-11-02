@@ -365,8 +365,8 @@ function filaArchivo(estado) {
     </li>`;
 }
 
-accion('tema-lote', d => {
-  const a = asignaturaDe(d.id);
+export function abrirTemarioLote(asignaturaId) {
+  const a = asignaturaDe(asignaturaId);
   if (!a) return;
   archivosTemario = [];
   const ya = temasDe(a.id).map(t => t.nombre);
@@ -426,7 +426,8 @@ accion('tema-lote', d => {
       });
     },
   });
-});
+}
+accion('tema-lote', d => abrirTemarioLote(d.id));
 
 accion('tema-lote-ordenar', (d, el) => {
   const ta = el.closest('.hoja').querySelector('#tema-lote-texto');

@@ -206,6 +206,99 @@ comprueba('sin tiempo suficiente para un bloque, no se propone nada',
   motor.planDelDia().motivo === 'sin-tiempo');
 
 /* ===========================================================================
+   4b. QUÉ HAGO HOY (reescrito nov 2026 con los datos reales)
+   Antes miraba solo exámenes a ≤21 días, callaba si un examen no tenía
+   temario y se cortaba a las 2 líneas por el tiempo libre de hoy. Estas
+   pruebas fijan cada regla nueva.
+   =========================================================================== */
+const ASIG3 = [{ id: 'h', nombre: 'Historia' }, { id: 'f', nombre: 'Filosofía' }, { id: 'l', nombre: 'Lengua' }];
+const ex = (id, a, dias, extra = {}) => ({ id, tipo: 'examen', titulo: 'Examen ' + id, fecha: dentroDe(dias), asignaturaId: a, ...extra });
+const tm = (id, a, nombre, dominio) => ({ id, asignaturaId: a, nombre, dominio });
+const sesionHace = (a, dias, minutos) => ({ id: 's' + a + dias, fecha: dentroDe(-dias), asignaturaId: a, minutos });
+
+siembra({ asignaturas: ASIG3, temas: [tm('t1', 'h', 'Tema 1', 10)], tareas: [ex('e1', 'h', 22)], minutosDia: 120 });
+comprueba('un examen a 22 días YA entra en el plan (el horizonte es de 45)',
+  motor.planDelDia().plan.some(b => b.refId === 't1'));
+
+siembra({ asignaturas: ASIG3, temas: [], tareas: [ex('e1', 'l', 17)], minutosDia: 120 });
+{
+  const r = motor.planDelDia();
+  comprueba('un examen SIN temario genera "poner el temario", de 10 min, lo primero',
+    r.plan[0]?.tipo === 'temario' && r.plan[0].minutos === 10 && r.plan[0].refId === 'l' && /sin temario/.test(r.plan[0].detalle),
+    JSON.stringify(r.plan[0]));
+}
+
+siembra({ asignaturas: ASIG3, temas: [], tareas: [ex('e1', 'l', 17), ex('e2', 'l', 30)], minutosDia: 120 });
+comprueba('dos exámenes de la misma asignatura sin temario dan UN solo aviso',
+  motor.planDelDia().plan.filter(b => b.tipo === 'temario').length === 1);
+
+/* El tiempo de hoy corta el plan, pero no lo que seguiría. */
+siembra({
+  asignaturas: ASIG3,
+  temas: [tm('h1', 'h', 'H1', 0), tm('f1', 'f', 'F1', 0), tm('l1', 'l', 'L1', 0)],
+  tareas: [ex('e1', 'h', 10), ex('e2', 'f', 10), ex('e3', 'l', 10)],
+  minutosDia: 60,
+});
+{
+  const r = motor.planDelDia();
+  const minPlan = r.plan.reduce((t, b) => t + b.minutos, 0);
+  comprueba('con 60 min el plan cabe en 60 y el resto va a "si te sobra tiempo"',
+    minPlan <= 60 && r.plan.length >= 1 && r.extra.length >= 1 && r.plan.length + r.extra.length === 3,
+    `plan ${r.plan.length} (${minPlan} min) + extra ${r.extra.length}`);
+  comprueba('el extra sigue después del plan, en el mismo orden de prioridad',
+    new Set([...r.plan, ...r.extra].map(b => b.refId)).size === 3);
+}
+siembra({ asignaturas: ASIG3, temas: [tm('h1', 'h', 'H1', 0)], tareas: [ex('e1', 'h', 10)], minutosDia: 5 });
+{
+  const r = motor.planDelDia();
+  comprueba('sin tiempo hoy: motivo "sin-tiempo", plan vacío, pero se enseña lo que seguiría',
+    r.motivo === 'sin-tiempo' && r.plan.length === 0 && r.extra.length === 1);
+}
+
+/* Una vuelta por todas las asignaturas antes de repetir. */
+siembra({
+  asignaturas: ASIG3,
+  temas: [
+    ...Array.from({ length: 30 }, (_, i) => tm('H' + i, 'h', `Tema ${i + 1}`, 0)),
+    tm('f1', 'f', 'Platón', 60), tm('f2', 'f', 'Kant', 60),
+  ],
+  tareas: [ex('e1', 'h', 20), ex('e2', 'f', 20)],
+  minutosDia: 300,
+});
+{
+  const r = motor.planDelDia();
+  const orden = [...r.plan, ...r.extra];
+  comprueba('con 30 temas a 0 % en una asignatura y 2 al 60 % en otra, la otra NO queda fuera',
+    orden.slice(0, 3).some(b => b.asignaturaId === 'f'), orden.slice(0, 3).map(b => b.asignaturaId).join());
+  comprueba('nunca dos bloques seguidos de la misma asignatura si hay otra cosa',
+    orden.slice(0, -1).every((b, i) => b.asignaturaId !== orden[i + 1].asignaturaId || orden.slice(i + 1).every(x => x.asignaturaId === b.asignaturaId)));
+  comprueba('en la que tiene todo a 0 %, propone el SIGUIENTE tema en orden (Tema 1, luego Tema 2)',
+    orden.filter(b => b.asignaturaId === 'h').slice(0, 2).map(b => b.que).join() === 'Tema 1,Tema 2',
+    orden.filter(b => b.asignaturaId === 'h').slice(0, 2).map(b => b.que).join());
+}
+
+/* Lo que lleva sin tocar sube; lo que ya estudió hoy baja. */
+const dosIguales = sesiones => siembra({
+  asignaturas: ASIG3, sesiones, minutosDia: 200,
+  temas: [tm('h1', 'h', 'H1', 30), tm('f1', 'f', 'F1', 30)],
+  tareas: [ex('e1', 'h', 15), ex('e2', 'f', 15)],
+});
+dosIguales([sesionHace('h', 3, 120)]);
+comprueba('con examen y dominio iguales, va primero la asignatura que lleva 14 días sin horas',
+  motor.planDelDia().plan[0]?.asignaturaId === 'f');
+comprueba('y el motivo lo dice ("0 h esta quincena")', /0 h esta quincena/.test(motor.planDelDia().plan[0]?.detalle || ''));
+dosIguales([{ id: 'hoy', fecha: HOY, asignaturaId: 'f', minutos: 90 }, sesionHace('h', 3, 120)]);
+comprueba('lo que ya ha estudiado HOY (90 min) baja frente a lo igual de urgente',
+  motor.planDelDia({ minutos: 200 }).plan[0]?.asignaturaId === 'h');
+
+/* Lo que vence ya sigue por delante de cualquier examen. */
+siembra({
+  asignaturas: ASIG3, temas: [tm('h1', 'h', 'H1', 0)], minutosDia: 200,
+  tareas: [ex('e1', 'h', 2), { id: 't1', tipo: 'tarea', titulo: 'Entrega', fecha: dentroDe(0), asignaturaId: 'f' }],
+});
+comprueba('una entrega para HOY va antes que un examen en 2 días', motor.planDelDia().plan[0]?.tipo === 'tarea');
+
+/* ===========================================================================
    5. PRIORIZACIÓN Y ATRASO — lo básico, que es lo que más se cree
    =========================================================================== */
 siembra({

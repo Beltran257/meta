@@ -988,3 +988,7 @@
 .fx-aps { grid-column: 2 / -1; }
 .fx-aps .fila { padding: 6px 0; border: 0; }
 .fx { min-width: 0; }
+.recomendacion[data-accion] { cursor: pointer; transition: background var(--t1); }
+.recomendacion[data-accion]:hover { background: var(--sup2); }
+.recomendacion.suave .min { opacity: .65; }
+.recomendacion .boton { pointer-events: none; }

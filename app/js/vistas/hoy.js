@@ -15,6 +15,7 @@ import { listaAsignaturas, asignaturaDe, colorDe } from '../core/asignaturas.js'
 import * as motor from '../core/motor.js';
 import * as sesion from '../core/sesion.js';
 import { guardarTareas } from './tareas.js';
+import { abrirTemarioLote } from './asignaturas.js';
 
 let raiz = null;
 let latido = null;
@@ -143,40 +144,54 @@ function bloqueAhora() {
 
 accion('sesion-desde-clase', d => emitir('ir', { id: 'estudiar', asignaturaId: d.asig, arrancar: true }));
 
-/* ------------------------------ recomendación ------------------------------ */
+/* ------------------------------ recomendación ------------------------------
+   "Qué hago hoy": lo que cabe en el tiempo que dijiste tener y, debajo, lo que
+   seguiría si das más. Cada fila lleva a algo útil: la ficha del examen (para
+   ver el tema y cambiar tu porcentaje al terminar), o a poner el temario de un
+   examen que no lo tiene. Ver motor.planDelDia. */
+const todosLosBloques = () => { const r = motor.planDelDia(); return [...r.plan, ...r.extra]; };
+
+function filaPlan(b, i, suave = false) {
+  return `
+    <div class="recomendacion ${suave ? 'suave' : ''}" data-accion="plan-abrir" data-i="${i}" role="button" tabindex="0">
+      <span class="min">${b.minutos} min</span>
+      <span class="q">
+        <span class="t1">${escapa(b.que)}</span>
+        <span class="t2">${escapa(b.detalle)}</span>
+      </span>
+      <span class="boton chico fantasma">${b.tipo === 'temario' ? 'Poner' : 'Abrir'}</span>
+    </div>`;
+}
+
 function bloquePlan() {
-  const { plan, libres } = motor.planDelDia();
+  const { plan, extra, libres, motivo } = motor.planDelDia();
   const total = plan.reduce((s, b) => s + b.minutos, 0);
 
-  if (!plan.length) {
+  if (!plan.length && !extra.length) {
     if (!listaAsignaturas().length) return '';
     return `
       <div class="seccion">
-        <div class="seccion-cab"><h2>META recomienda</h2></div>
+        <div class="seccion-cab"><h2>Qué hago hoy</h2></div>
         <div class="vacio">
           <h4>Nada urgente ahora mismo</h4>
-          <p>Cuando apuntes tareas, exámenes o temas, aquí aparecerá el reparto del día.</p>
+          <p>Apunta tus exámenes y sube el temario de cada asignatura: con eso aquí aparece qué estudiar y cuánto.</p>
         </div>
       </div>`;
   }
 
+  const visibles = plan.slice(0, 5);
+  const siguientes = (plan.length > 5 ? plan.slice(5) : []).concat(extra).slice(0, plan.length ? 3 : 4);
   return `
     <div class="seccion">
       <div class="seccion-cab">
-        <h2>META recomienda</h2>
-        <span class="apag">${escapa(duracion(total))}${libres >= 25 ? ` · te sobran ${escapa(duracion(libres))}` : ''}</span>
+        <h2>Qué hago hoy</h2>
+        <span class="apag">${plan.length ? `${escapa(duracion(total))}${libres >= 25 ? ` · te sobran ${escapa(duracion(libres))}` : ''}` : ''}</span>
       </div>
-      <div class="lista">
-        ${plan.map((b, i) => `
-          <div class="recomendacion">
-            <span class="min">${b.minutos} min</span>
-            <span class="q">
-              <span class="t1">${escapa(b.que)}</span>
-              <span class="t2">${escapa(b.detalle)}</span>
-            </span>
-            <button class="boton chico fantasma" data-accion="plan-empezar" data-i="${i}">Empezar</button>
-          </div>`).join('')}
-      </div>
+      ${plan.length ? `<div class="lista">${visibles.map((b, i) => filaPlan(b, i)).join('')}</div>` : `
+        <p class="pista">${motivo === 'sin-tiempo' ? 'Hoy ya no te queda tiempo de estudio según lo que has dicho. Esto sería lo siguiente:' : 'Esto sería lo siguiente:'}</p>`}
+      ${siguientes.length ? `
+        <h3 class="cal-sub" data-mt-grande>${plan.length ? 'Si te sobra tiempo' : 'Por orden'}</h3>
+        <div class="lista">${siguientes.map((b, i) => filaPlan(b, (plan.length > 5 ? 5 : plan.length) + i, true)).join('')}</div>` : ''}
       <div class="acciones" data-mt>
         <button class="boton fantasma chico" data-accion="plan-detalle">Ver el plan completo</button>
       </div>
@@ -186,21 +201,22 @@ function bloquePlan() {
 let modoPlan = 'hoy'; // hoy | semana
 
 function cuerpoPlanHoy() {
-  const { plan, libres } = motor.planDelDia();
-  return plan.length ? `
-      <p class="parrafo">Repartido sobre los ${escapa(duracion(motor.minutosLibresHoy()))} que dijiste
-      que tienes hoy. Primero lo que vence, después los exámenes cercanos empezando
-      por los temas más flojos, y al final los repasos que ya tocaban.</p>
-      <div class="lista" data-mt-grande>
-        ${plan.map((b, i) => `
-          <div class="recomendacion">
-            <span class="min">${b.minutos} min</span>
-            <span class="q"><span class="t1">${escapa(b.que)}</span><span class="t2">${escapa(b.detalle)}</span></span>
-            <button class="boton chico fantasma" data-accion="plan-empezar" data-i="${i}">Empezar</button>
-          </div>`).join('')}
-      </div>
-      ${libres >= 25 ? `<p class="pista">Te quedarían ${escapa(duracion(libres))} libres.</p>` : ''}`
-      : '<p class="parrafo">Hoy no hay nada que planificar: ni entregas cerca, ni exámenes, ni repasos vencidos.</p>';
+  const { plan, extra, libres, motivo } = motor.planDelDia();
+  const filas = [...plan, ...extra];
+  if (!filas.length) return '<p class="parrafo">Hoy no hay nada que planificar: ni entregas cerca, ni exámenes, ni repasos vencidos.</p>';
+  return `
+      <p class="parrafo">Ordenado por lo que más te conviene hacer: cuánto falta para cada examen, lo que tú mismo
+      dices que llevas de cada tema y lo que llevas sin tocar esa asignatura. Si un examen no tiene temario,
+      lo primero es ponerlo.</p>
+      ${plan.length ? `
+        <h3 class="cal-sub" data-mt-grande>Cabe hoy <span class="apag">${escapa(duracion(plan.reduce((s, b) => s + b.minutos, 0)))} de ${escapa(duracion(motor.minutosLibresHoy()))}</span></h3>
+        <div class="lista">${plan.map((b, i) => filaPlan(b, i)).join('')}</div>` : `
+        <p class="pista" data-mt-grande>${motivo === 'sin-tiempo' ? 'Hoy ya no te queda tiempo de estudio según lo que has dicho.' : ''}</p>`}
+      ${extra.length ? `
+        <h3 class="cal-sub" data-mt-grande>${plan.length ? 'Si te sobra tiempo' : 'Por orden'}</h3>
+        <div class="lista">${extra.map((b, i) => filaPlan(b, plan.length + i, true)).join('')}</div>` : ''}
+      ${libres >= 25 && plan.length ? `<p class="pista">Te quedarían ${escapa(duracion(libres))} libres.</p>` : ''}
+      <button class="boton fantasma ancho" data-accion="plan-copiar" data-mt-grande>Copiar el plan (para pegarlo en tus tareas)</button>`;
 }
 
 /* La semana no repite el algoritmo de "hoy" para los días futuros (fingir qué
@@ -280,16 +296,21 @@ accion('mover-a', d => {
   abrirPlan();
 });
 
-accion('plan-empezar', d => {
-  const b = motor.planDelDia().plan[Number(d.i)];
+accion('plan-abrir', d => {
+  const b = todosLosBloques()[Number(d.i)];
   if (!b) return;
-  emitir('ir', {
-    id: 'estudiar',
-    asignaturaId: b.asignaturaId,
-    temaId: b.tipo === 'tema' || b.tipo === 'repaso' ? b.refId : null,
-    minutos: b.minutos,
-    arrancar: true,
-  });
+  if (b.tipo === 'temario') return abrirTemarioLote(b.refId);
+  if (b.tipo === 'tarea') return emitir('abrir-tarea', b.refId);
+  if (b.tipo === 'tema' && b.examenId) return emitir('ir', { id: 'examenes', examenId: b.examenId });
+  emitir('ir', { id: 'asignaturas', asignaturaId: b.asignaturaId });
+});
+
+accion('plan-copiar', async () => {
+  const hoy = hoyLocal();
+  const texto = `Plan de estudio · ${fechaLarga(hoy)}\n` + todosLosBloques()
+    .map(b => `- ${b.minutos} min · ${b.que} (${b.detalle})`).join('\n');
+  try { await navigator.clipboard.writeText(texto); aviso('Plan copiado'); }
+  catch { aviso('No se pudo copiar', 'mal'); }
 });
 
 /* -------------------------------- para hoy --------------------------------- */
