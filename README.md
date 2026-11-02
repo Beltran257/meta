@@ -2,7 +2,7 @@
 
 > Organizador académico: horario, exámenes, tareas, apuntes y temario, con las
 > horas de estudio sacadas solas de tu calendario.
-> Versión desplegada: **2.0.43** · `https://meta.beltranfersan.workers.dev`
+> Versión desplegada: **2.0.44** · `https://meta.beltranfersan.workers.dev`
 
 ## Qué es
 
