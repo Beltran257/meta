@@ -122,15 +122,17 @@ igual('se recorta y se limpia lo que llega (versión y vista solo con caracteres
 }
 
 /* ------------------------ 4. vigila.mjs con producción simulada ------------- */
-const SHELL = `self.APP_VERSION = '2.0.40';\nself.SHELL = [\n  './',\n  './index.html',\n  './js/main.js',\n];`;
+// Como el shell.js real: la raíz './' y los módulos (no hay './index.html').
+const SHELL = `self.APP_VERSION = '2.0.40';\nself.SHELL = [\n  './',\n  './css/app.css',\n  './js/main.js',\n];`;
 const SANA = {
   '/api/salud': { status: 200, texto: JSON.stringify({ ok: true, servicio: 'meta', limitador: 'activo', cuentas: 'listas', google: 'conectado', ia: 'enlazada', datos: 'ok', estudio: 'ok (último envío hace 20 min)', errores: 'ninguno en 24 h' }) },
   '/shell.js': { status: 200, texto: SHELL },
   '/sw.js': { status: 200, texto: "importScripts('./shell.js?v=2.0.40');" },
   '/arranque.js': { status: 200, texto: "var VERSION = '2.0.40';" },
-  '/index.html': { status: 200, texto: '<script src="./arranque.js?v=2.0.40"></script>' },
+  '/index.html': { status: 307, texto: '' },      // Cloudflare redirige /index.html → / : sin cuerpo (así pasó en producción)
   '/js/main.js': { status: 200, texto: 'export {}' },
-  '/': { status: 200, texto: '<html>', headers: { 'content-security-policy': 'x', 'x-frame-options': 'DENY', 'strict-transport-security': 'x', 'cross-origin-opener-policy': 'x' } },
+  '/css/app.css': { status: 200, texto: 'body{}' },
+  '/': { status: 200, texto: '<html><script src="./arranque.js?v=2.0.40"></script>', headers: { 'content-security-policy': 'x', 'x-frame-options': 'DENY', 'strict-transport-security': 'x', 'cross-origin-opener-policy': 'x' } },
   '/privacidad.html': { status: 200, texto: '<h1>Privacidad</h1> datos' },
   '/api/estudio/recibir': { status: 401, texto: '{}' },
 };
@@ -166,7 +168,8 @@ const casos = [
   ['sw.js con otra versión', { '/sw.js': { status: 200, texto: "importScripts('./shell.js?v=2.0.39');" } }, /versiones no cuadran.*sw\.js dice 2\.0\.39/],
   ['arranque.js con otra versión', { '/arranque.js': { status: 200, texto: "var VERSION = '2.0.38';" } }, /arranque\.js dice 2\.0\.38/],
   ['archivo del precaché que no se sirve', { '/js/main.js': { status: 404, texto: '' } }, /precaché promete archivos.*js\/main\.js \(404\)/],
-  ['sin cabeceras de seguridad', { '/': { status: 200, texto: '<html>', headers: {} } }, /faltan cabeceras.*content-security-policy/],
+  ['sin cabeceras de seguridad', { '/': { status: 200, texto: '<html><script src="./arranque.js?v=2.0.40"></script>', headers: {} } }, /faltan cabeceras.*content-security-policy/],
+  ['index.html con otra versión', { '/': { status: 200, texto: '<script src="./arranque.js?v=2.0.37"></script>', headers: { 'content-security-policy': 'x', 'x-frame-options': 'DENY', 'strict-transport-security': 'x', 'cross-origin-opener-policy': 'x' } } }, /index\.html dice 2\.0\.37/],
   ['ruta privada abierta', { '/api/datos': { status: 200, texto: '{"claves":{}}' } }, /SEGURIDAD.*GET \/api\/datos/],
   ['clave falsa del script aceptada', { '/api/estudio/recibir': { status: 200, texto: '{}' } }, /SEGURIDAD.*clave falsa/],
   ['privacidad sin servir', { '/privacidad.html': { status: 404, texto: '' } }, /privacidad no se sirve/],

@@ -75,7 +75,8 @@ export async function vigila({ pedir, versionRepo = null }) {
   const vProd = versionDe(rShell.texto, /APP_VERSION\s*=\s*'([^']+)'/);
   const rSw = await intenta('/sw.js?v=' + Date.now());
   const rArr = await intenta('/arranque.js?v=' + Date.now());
-  const rIdx = await intenta('/index.html?v=' + Date.now());
+  // El index se pide en `/`: Cloudflare redirige /index.html → / (307) y esa respuesta no trae cuerpo.
+  const rIdx = await intenta('/?v=' + Date.now());
   const vSw = versionDe(rSw.texto, /shell\.js\?v=([0-9.]+)/);
   const vArr = versionDe(rArr.texto, /VERSION\s*=\s*'([^']+)'/);
   const vIdx = versionDe(rIdx.texto, /arranque\.js\?v=([0-9.]+)/);
@@ -105,7 +106,8 @@ export async function vigila({ pedir, versionRepo = null }) {
   const rRaiz = await intenta('/');
   const sin = CABECERAS.filter(h => !rRaiz.headers?.[h]);
   sin.length ? f(`faltan cabeceras de seguridad: ${sin.join(', ')}`) : ok('cabeceras de seguridad presentes');
-  const rPriv = await intenta('/privacidad.html');
+  // Google tiene guardada /privacidad.html y Cloudflare la redirige a /privacidad: hay que seguir la redirección.
+  const rPriv = await intenta('/privacidad.html', { seguir: true });
   rPriv.status === 200 && /privacidad|datos/i.test(rPriv.texto) ? ok('la página de privacidad se sirve') : f(`la página de privacidad no se sirve (estado ${rPriv.status})`);
 
   /* 5. Lo privado sigue pidiendo sesión. */
@@ -140,9 +142,9 @@ if (esPrincipal) {
   let versionRepo = null;
   try { versionRepo = versionDe(readFileSync(join(raiz, 'app/shell.js'), 'utf8'), /APP_VERSION\s*=\s*'([^']+)'/); } catch { /* sin repo al lado */ }
 
-  const pedir = async (ruta, { metodo = 'GET', cuerpo, cabeceras = {} } = {}) => {
+  const pedir = async (ruta, { metodo = 'GET', cuerpo, cabeceras = {}, seguir = false } = {}) => {
     const r = await fetch(base + ruta, {
-      method: metodo, body: cuerpo, redirect: 'manual', signal: AbortSignal.timeout(20000),
+      method: metodo, body: cuerpo, redirect: seguir ? 'follow' : 'manual', signal: AbortSignal.timeout(20000),
       headers: { ...(cuerpo ? { 'Content-Type': 'application/json', 'X-Meta': '1' } : {}), ...cabeceras },
     });
     return { status: r.status, headers: Object.fromEntries(r.headers), texto: await r.text() };
