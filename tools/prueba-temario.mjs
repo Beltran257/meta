@@ -23,7 +23,7 @@ globalThis.localStorage = {
 const T = await import('../app/js/core/temario.js');
 const { temasDeArchivo } = await import('../app/js/core/temario-lectura.js');
 const { guardar, leer } = await import('../app/js/core/store.js');
-const { crearTemas, temasDe, enlazarApuntes, novedadesDeTemario, guardarApartados } = await import('../app/js/core/temas.js');
+const { crearTemas, temasDe, enlazarApuntes, novedadesDeTemario, guardarApartados, subtemasDeGrupos, novedadesSubtemas, guardarSubtemas } = await import('../app/js/core/temas.js');
 const { tipoDeArchivo } = await import('../app/js/core/temario-lectura.js');
 const { leerArchivo } = await import('../worker/temario.js');
 
@@ -330,6 +330,33 @@ igual('tipo de archivo por extensión o MIME',
   igual('el mismo archivo otra vez: nada nuevo',
     [novedadesDeTemario('mat', t2, g2).nuevos, novedadesDeTemario('mat', t2, g2).ampliados], [[], []]);
   igual('no duplica temas', temasDe('mat').map(t => t.nombre), ['Tema 1. Matrices', 'Tema 3. Sistemas de ecuaciones', 'Tema 4. Programación lineal']);
+}
+
+
+/* ------------- Matemáticas: el temario dividido en subtemas ---------------- */
+{
+  const v1 = `TEMA 1 · MATRICES\n1.1  Definición y notación\n1.2  Tipos de matrices\n1.2.1  Matriz identidad\n1.2.2  Matriz nula\n1.10  Ecuaciones matriciales\nTEMA 2 · DETERMINANTES\n2.1  Definición\n`;
+  const grupos = T.apartadosDeTexto(v1), temas = T.temasDeTexto(v1).temas;
+  const items = subtemasDeGrupos(grupos, temas);
+  igual('subtemas en orden numérico (1.10 después de 1.2) con su tema grande',
+    items.map(i => [i.codigo, i.padre]), [['1.1', 'Tema 1. Matrices'], ['1.2', 'Tema 1. Matrices'], ['1.10', 'Tema 1. Matrices'], ['2.1', 'Tema 2. Determinantes']]);
+  igual('el detalle (1.2.1…) cuelga de su subtema', items[1].detalle.map(a => a.c), ['1.2.1', '1.2.2']);
+  guardar('temas', []);
+  igual('primera vez: todos nuevos', novedadesSubtemas('mat2', items).nuevos.length, 4);
+  const r = guardarSubtemas('mat2', items, ['1.1', '1.2', '1.10', '2.1']);
+  igual('crea cuatro subtemas', r.creados, 4);
+  igual('se listan por código, no por texto', temasDe('mat2').map(t => t.codigo), ['1.1', '1.2', '1.10', '2.1']);
+  igual('los subtemas son temas con dominio propio', temasDe('mat2').every(t => t.dominio === 0 && t.asignaturaId === 'mat2'), true);
+  igual('no se crea un tema grande aparte (nada se cuenta dos veces)', temasDe('mat2').some(t => /^Tema \d/.test(t.nombre)), false);
+  // Una semana después: 1.3 nuevo y 1.2.3 dentro de un subtema que ya estaba.
+  const v2 = v1 + `1.3  Operaciones\n1.2.3  Matriz columna\n`;
+  const items2 = subtemasDeGrupos(T.apartadosDeTexto(v2), T.temasDeTexto(v2).temas);
+  const n = novedadesSubtemas('mat2', items2);
+  igual('nuevo: solo el subtema 1.3', n.nuevos, ['1.3 Operaciones']);
+  igual('nuevo: 1.2.3 dentro de 1.2', n.ampliados.map(x => [x.tema, x.apartados]), [['1.2 Tipos de matrices', ['1.2.3']]]);
+  const r2 = guardarSubtemas('mat2', items2, ['1.3']);
+  igual('guarda 1.3 y anota 1.2.3 sin duplicar nada', [r2.creados, r2.detalles, temasDe('mat2').length], [1, 1, 5]);
+  igual('subir lo mismo otra vez no cambia nada', guardarSubtemas('mat2', items2, ['1.3']), { creados: 0, detalles: 0 });
 }
 
 console.log(fallos ? `\n${fallos} fallo(s)` : '\ntodo bien');

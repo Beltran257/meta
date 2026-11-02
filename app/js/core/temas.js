@@ -23,8 +23,16 @@ export const temaDe = id => listaTemas().find(t => t.id === id) || null;
 /* Siempre en orden natural ("Tema 2" antes que "Tema 10", A1 antes que B1); lo
    que no tiene número va detrás, en el orden en que se creó. Así el temario
    queda ordenado lo apunte como lo apunte, y no hay botón de ordenar. */
+const numerosDe = c => String(c).split('.').map(Number);
+/** Orden de dos códigos de subtema ("1.2" < "1.10" < "2.1"). */
+export function comparaCodigos(a, b) {
+  const x = numerosDe(a), y = numerosDe(b);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) { const d = (x[i] ?? -1) - (y[i] ?? -1); if (d) return d; }
+  return 0;
+}
 export const temasDe = asigId => listaTemas().filter(t => t.asignaturaId === asigId)
-  .map((t, i) => [t, i]).sort((a, b) => comparaOrden(a[0].nombre, b[0].nombre) || a[1] - b[1]).map(([t]) => t);
+  .map((t, i) => [t, i]).sort((a, b) =>
+    (a[0].codigo && b[0].codigo ? comparaCodigos(a[0].codigo, b[0].codigo) : comparaOrden(a[0].nombre, b[0].nombre)) || a[1] - b[1]).map(([t]) => t);
 
 export const nuevoId = () => 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
@@ -81,6 +89,77 @@ export function enlazarApuntes(asignaturaId, { soloContar = false } = {}) {
   emitir('local-cambio');
   emitir('datos-cambio', ['apuntesMeta']);
   return enlaces.length;
+}
+
+/* ============================== SUBTEMAS ===================================
+   Solo para las asignaturas con `subtemas: true` (Matemáticas). El temario se
+   divide en sus apartados ("1.2 Tipos de matrices"): cada uno es un TEMA de
+   verdad (con su dominio, repaso, examen y sesiones) que cuelga de su tema
+   grande (`padre`, solo para agrupar: el tema grande no es otro tema, así nada
+   se cuenta dos veces). Los subapartados (1.2.1…) son el detalle del subtema
+   (`apartados`), con la marca de "nuevo" al ampliarse el archivo. */
+
+/** De los apartados leídos a los subtemas: [{codigo, nombre, padre, detalle}].
+    Un tema sin apartados es un subtema él mismo. */
+export function subtemasDeGrupos(grupos, nombresTemas = []) {
+  const grande = num => nombresTemas.find(n => unidadDe(n)?.num === num) || `Tema ${num}`;
+  const items = [];
+  for (const g of grupos || []) {
+    const hijos = g.apartados.filter(a => a.n === 2);
+    if (!hijos.length) { items.push({ codigo: String(g.num), nombre: grande(g.num), padre: null, detalle: [] }); continue; }
+    for (const h of hijos) {
+      items.push({ codigo: h.c, nombre: `${h.c} ${h.t}`, padre: grande(g.num),
+        detalle: g.apartados.filter(a => a.n === 3 && a.c.startsWith(h.c + '.')) });
+    }
+  }
+  return items.sort((a, b) => comparaCodigos(a.codigo, b.codigo));
+}
+
+/** Qué hay de nuevo en esos subtemas respecto a lo que ya está guardado. */
+export function novedadesSubtemas(asignaturaId, items) {
+  const propios = temasDe(asignaturaId);
+  const nuevos = [], conocidos = [], ampliados = [];
+  for (const it of items) {
+    const t = propios.find(x => x.codigo === it.codigo);
+    if (!t) { nuevos.push(it.nombre); continue; }
+    conocidos.push(it.nombre);
+    const tenia = new Set((t.apartados || []).map(a => a.c));
+    const mas = t.apartados ? it.detalle.filter(a => !tenia.has(a.c)) : [];
+    if (mas.length) ampliados.push({ tema: t.nombre, apartados: mas.map(a => a.c) });
+  }
+  return { nuevos, conocidos, ampliados };
+}
+
+/** Crea los subtemas elegidos (por su código) y anota el detalle de todos los
+    que existen. Una sola escritura. Devuelve { creados, detalles }. */
+export function guardarSubtemas(asignaturaId, items, codigosElegidos) {
+  const elegidos = new Set(codigosElegidos);
+  const hoy = Date.now();
+  const lista = listaTemas();
+  const existentes = lista.filter(t => t.asignaturaId === asignaturaId);
+  let creados = 0, detalles = 0;
+  const nuevos = [];
+  for (const it of items) {
+    if (existentes.some(t => t.codigo === it.codigo) || !elegidos.has(it.codigo)) continue;
+    nuevos.push({
+      id: nuevoId(), asignaturaId, nombre: it.nombre.slice(0, 120), codigo: it.codigo, padre: it.padre,
+      dominio: 0, paso: 0, ultimoRepaso: null, proximoRepaso: null, creado: hoy,
+      ...(it.detalle.length ? { apartados: it.detalle.map(a => ({ ...a, desde: null })) } : {}),
+    });
+    creados++;
+  }
+  const todas = [...lista, ...nuevos].map(t => {
+    if (t.asignaturaId !== asignaturaId || !t.codigo || nuevos.includes(t)) return t;
+    const it = items.find(x => x.codigo === t.codigo);
+    if (!it) return t;
+    const tenia = new Set((t.apartados || []).map(a => a.c));
+    const mas = it.detalle.filter(a => !tenia.has(a.c)).map(a => ({ ...a, desde: t.apartados ? hoy : null }));
+    if (!mas.length) return t;
+    detalles += mas.length;
+    return { ...t, apartados: [...(t.apartados || []), ...mas].sort((a, b) => comparaCodigos(a.c, b.c)) };
+  });
+  if (creados || detalles) guardarTemas(todas);
+  return { creados, detalles };
 }
 
 /** Qué aporta un archivo de temario que se va ampliando, SIN guardar nada:

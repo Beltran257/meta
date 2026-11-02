@@ -157,7 +157,7 @@ function detalle(e) {
         ${todos.length ? `
           <div class="pista">Marca los temas que entran en este examen y pon cuánto te sabes cada uno (±10 %).
           Lo que dejes sin marcar no cuenta en la preparación.</div>
-          <div class="fx-lista" data-mt>${todos.map(t => filaTema(t, entran.has(t.id), minTema.get(t.id) || 0, apDeTema(t.id))).join('')}</div>`
+          <div class="fx-lista" data-mt>${todos.map((t, i) => (t.padre && t.padre !== todos[i - 1]?.padre ? `<div class="pista"><b>${escapa(t.padre)}</b></div>` : '') + filaTema(t, entran.has(t.id), minTema.get(t.id) || 0, apDeTema(t.id))).join('')}</div>`
         : `
           <div class="vacio">
             <h4>Esta asignatura aún no tiene temario</h4>

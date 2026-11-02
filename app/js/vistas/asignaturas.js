@@ -13,7 +13,7 @@ import { asignaturaDeTitulo, norma } from '../core/calendario.js';
 import { temasDeTitulos, unirNombres, apartadosDeTexto } from '../core/temario.js';
 import { temasDeArchivo, tipoDeArchivo } from '../core/temario-lectura.js';
 import { guardarArchivoApunte, quitarApunte } from './apuntes.js';
-import { temasDe, crearTema, crearTemas, editarTema, borrarTema, dominioMedio, enlazarApuntes, novedadesDeTemario, guardarApartados } from '../core/temas.js';
+import { comparaCodigos, subtemasDeGrupos, novedadesSubtemas, guardarSubtemas, temasDe, crearTema, crearTemas, editarTema, borrarTema, dominioMedio, enlazarApuntes, novedadesDeTemario, guardarApartados } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import { abrirNotas, mediaGeneral } from './notas.js';
 
@@ -100,7 +100,8 @@ function vistaDetalle(a) {
       </div>
       ${r.temas.length ? `
         <div class="lista">
-          ${r.temas.map(t => `
+          ${r.temas.map((t, i) => `
+            ${t.padre && t.padre !== r.temas[i - 1]?.padre ? `<div class="seccion-cab"><h2>${escapa(t.padre)}</h2></div>` : ''}
             <div class="tema-fila" data-accion="tema-abrir" data-id="${escapa(t.id)}">
               <span class="n">${escapa(t.nombre)}${apuntesPorTema.get(t.id) ? ` <span class="apag">· ${apuntesPorTema.get(t.id)} ${apuntesPorTema.get(t.id) === 1 ? 'apunte' : 'apuntes'}</span>` : ''}${t.proximoRepaso && diasHasta(t.proximoRepaso) <= 0 ? ' <span class="pil ojo">toca repasar</span>' : ''}</span>
               ${barra(t.dominio || 0, claseDe(t.dominio || 0))}
@@ -208,6 +209,9 @@ function formAsignatura(a) {
           ${TIPOS_ASIGNATURA.map(([v, e]) => `<button type="button" class="chip" data-tipo-asig="${v}" aria-pressed="${tipoDe(a) === v}">${e}</button>`).join('')}
         </div>
       </div>
+      <label class="marca-guardar">
+        <input type="checkbox" id="as-subtemas" ${a?.subtemas ? 'checked' : ''}> Dividir el temario en subtemas (1.1, 1.2…)
+      </label>
       <div class="campos-2">
         <div class="campo">
           <label for="as-profesor">Profesor (opcional)</label>
@@ -258,12 +262,13 @@ accion('asig-guardar', (d, el) => {
   const aula = v.querySelector('#as-aula').value.trim();
   const color = v.querySelector('#as-paleta button[aria-pressed="true"]')?.dataset.color || siguienteColor();
   const tipo = v.querySelector('#as-tipo button[aria-pressed="true"]')?.dataset.tipoAsig || 'academica';
+  const subtemas = v.querySelector('#as-subtemas').checked;
   if (!nombre) return aviso('Ponle un nombre', 'mal');
 
   const lista = listaAsignaturas();
   guardarAsignaturas(d.id
-    ? lista.map(a => (a.id === d.id ? { ...a, nombre, profesor, aula, color, tipo } : a))
-    : [...lista, { id: nuevoId(), nombre, profesor, aula, color, tipo }]);
+    ? lista.map(a => (a.id === d.id ? { ...a, nombre, profesor, aula, color, tipo, subtemas } : a))
+    : [...lista, { id: nuevoId(), nombre, profesor, aula, color, tipo, subtemas }]);
   cerrarHoja();
   render();
   aviso('Guardado');
@@ -354,7 +359,10 @@ accion('tema-abrir', d => {
    Cómo se lee cada cosa: core/temario-lectura.js. Cómo se sacan los temas del
    texto: core/temario.js (con pruebas en tools/prueba-temario.mjs). */
 
+const codigoDe = n => /^(\d{1,2}(?:\.\d{1,2})?)\s/.exec(String(n || ''))?.[1] || null;
+
 let archivosTemario = [];       // lo elegido en la hoja abierta, para poder guardarlo en Apuntes
+let itemsTemario = [];          // subtemas leídos (solo asignaturas con subtemas)
 let gruposTemario = [];         // apartados leídos de los archivos (para marcar lo nuevo al volver a subir uno ampliado)
 
 const lineasDe = ta => ta.value.split('\n').map(l => l.trim()).filter(Boolean);
@@ -377,6 +385,7 @@ export function abrirTemarioLote(asignaturaId) {
   if (!a) return;
   archivosTemario = [];
   gruposTemario = [];
+  itemsTemario = [];
   const ya = temasDe(a.id).map(t => t.nombre);
   const deApuntes = unirNombres([temasDeTitulos(leer('apuntesMeta', []).filter(x => x.asignaturaId === a.id).map(x => x.titulo))], ya);
   hoja({
@@ -417,17 +426,23 @@ export function abrirTemarioLote(asignaturaId) {
           const f = elegidos[i];
           try {
             const r = await temasDeArchivo(f);
-            const nuevos = unirNombres([lineasDe(ta), r.temas], ya);
-            ponLineas(ta, nuevos);
             const grupos = apartadosDeTexto(r.texto);
+            const items = a.subtemas && grupos.length ? subtemasDeGrupos(grupos, r.temas) : [];
+            itemsTemario.push(...items);
+            if (items.length) {
+              // Con subtemas, la lista a revisar son los apartados (1.1, 1.2…), por orden.
+              const existentes = new Set(temasDe(a.id).map(t => t.codigo).filter(Boolean));
+              const lineas = [...new Set([...lineasDe(ta), ...items.filter(i => !existentes.has(i.codigo)).map(i => i.nombre)])];
+              ponLineas(ta, lineas.sort((x, y) => comparaCodigos(codigoDe(x) || '9999', codigoDe(y) || '9999')));
+            } else ponLineas(ta, unirNombres([lineasDe(ta), r.temas], ya));
             gruposTemario.push(...grupos);
-            const nov = novedadesDeTemario(asignaturaId, r.temas, grupos);
-            const nSub = grupos.reduce((t, g) => t + g.apartados.length, 0);
+            const nov = items.length ? novedadesSubtemas(asignaturaId, items) : novedadesDeTemario(asignaturaId, r.temas, grupos);
+            const nSub = items.length ? items.length : grupos.reduce((t, g) => t + g.apartados.length, 0);
             const partesNov = [
-              nSub ? `${nSub} apartados y subapartados` : '',
+              nSub ? (items.length ? `${nSub} subtemas` : `${nSub} apartados y subapartados`) : '',
               nov.nuevos.length ? `nuevos: ${nov.nuevos.join(', ')}` : '',
               nov.ampliados.length ? `apartados nuevos en ${nov.ampliados.map(x => `${x.tema.split('.')[0]} (${x.apartados.join(', ')})`).join('; ')}` : '',
-              nov.conocidos.length ? `ya tenías ${nov.conocidos.map(n => n.split('.')[0]).join(', ')}` : '',
+              nov.conocidos.length ? `ya tenías ${nov.conocidos.length > 4 ? nov.conocidos.length : nov.conocidos.map(n => codigoDe(n) || n.split('.')[0]).join(', ')}` : '',
             ].filter(Boolean).join(' · ');
             estados[i] = { nombre: f.name, ok: r.temas.length > 0 || r.modo === 'grande',
               texto: r.modo === 'grande' ? 'Es muy grande para leerlo: se guarda en Apuntes igualmente. Para sacar sus temas, ponle "Tema N …" al nombre o pega el índice.'
@@ -462,7 +477,12 @@ accion('tema-lote-guardar', async (d, el) => {
   if (!nombres.length && !guardarArchivos) return aviso('Escribe al menos un tema', 'mal');
   el.disabled = true;
 
-  const creados = crearTemas(d.id, nombres);
+  // Con subtemas, las líneas que son "1.2 Título" crean subtemas (con su tema
+  // grande y su detalle); el resto, temas normales.
+  const lineasCodigo = nombres.filter(n => codigoDe(n) && itemsTemario.some(i => i.codigo === codigoDe(n)));
+  const sub = itemsTemario.length ? guardarSubtemas(d.id, itemsTemario, lineasCodigo.map(codigoDe)) : { creados: 0, detalles: 0 };
+  const sueltos = crearTemas(d.id, nombres.filter(n => !lineasCodigo.includes(n)));
+  const creados = { length: sub.creados + sueltos.length };
   let guardados = 0;
   if (guardarArchivos) {
     const existentes = new Set(leer('apuntesMeta', []).filter(x => x.asignaturaId === d.id).map(x => norma(x.titulo)));
@@ -485,7 +505,7 @@ accion('tema-lote-guardar', async (d, el) => {
   }
   // Los apuntes ya subidos cuyo título dice "Tema 3" se cuelgan del tema 3.
   const colgados = enlazarApuntes(d.id);
-  const apartados = guardarApartados(d.id, gruposTemario);
+  const apartados = itemsTemario.length ? sub.detalles : guardarApartados(d.id, gruposTemario);
   cerrarHoja();
   render();
   const partes = [
