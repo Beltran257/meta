@@ -185,6 +185,14 @@ for (const [nombre, cambios, patron] of casos) {
   s.fallos.length === 0 && s.avisos.some(x => /ningún script/.test(x)) ? bien('sin script instalado: aviso, no fallo') : mal('sin script debía ser aviso');
 }
 {
+  // Lo que NO se pudo comprobar no se da por bueno (con la red caída, "no contestó" no es "protegida").
+  const caida = await vigila({ pedir: async () => ({ status: 0, headers: {}, texto: '', error: 'sin red' }) });
+  !caida.bien.some(x => /rutas privadas/.test(x)) && caida.avisos.some(x => /no se pudo comprobar/.test(x))
+    ? bien('con la red caída NO se dan por buenas las rutas privadas (se avisa de que no se pudo comprobar)') : mal(`red caída: ${JSON.stringify(caida.bien)}`);
+  const r500 = await corre({ '/api/datos': { status: 500, texto: '' } });
+  r500.fallos.length === 0 && r500.avisos.some(x => /GET \/api\/datos \(500\)/.test(x)) ? bien('una ruta privada que da 500 es un aviso, no "protegida"') : mal(`500: ${JSON.stringify(r500)}`);
+}
+{
   const md = informe({ fallos: ['algo falla'], avisos: ['ojo'], bien: ['esto va'] }, 'https://x', new Date('2026-11-05T10:00:00Z'));
   /🔴 FALLA/.test(md) && /❌ algo falla/.test(md) && /⚠️ ojo/.test(md) && /2026-11-05 10:00 UTC/.test(md) ? bien('el informe es legible: estado, fallos, avisos y hora') : mal('informe mal formado');
 }

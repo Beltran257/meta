@@ -111,12 +111,15 @@ export async function vigila({ pedir, versionRepo = null }) {
   rPriv.status === 200 && /privacidad|datos/i.test(rPriv.texto) ? ok('la página de privacidad se sirve') : f(`la página de privacidad no se sirve (estado ${rPriv.status})`);
 
   /* 5. Lo privado sigue pidiendo sesión. */
-  const abiertas = [];
+  const abiertas = [], sinComprobar = [];
   for (const [metodo, ruta] of PRIVADAS) {
     const r = await intenta(ruta, { metodo, cuerpo: metodo === 'POST' ? '{}' : undefined });
     if (r.status === 200) abiertas.push(`${metodo} ${ruta}`);
+    else if (![401, 403].includes(r.status)) sinComprobar.push(`${metodo} ${ruta} (${r.status})`);   // 0 = sin respuesta: NO es lo mismo que "protegida"
   }
-  abiertas.length ? f(`SEGURIDAD: estas rutas contestan 200 SIN sesión: ${abiertas.join(', ')}`) : ok(`${PRIVADAS.length} rutas privadas siguen pidiendo sesión`);
+  if (abiertas.length) f(`SEGURIDAD: estas rutas contestan 200 SIN sesión: ${abiertas.join(', ')}`);
+  else if (sinComprobar.length) a(`no se pudo comprobar que pidan sesión: ${sinComprobar.slice(0, 4).join(', ')}${sinComprobar.length > 4 ? '…' : ''}`);
+  else ok(`${PRIVADAS.length} rutas privadas siguen pidiendo sesión (401)`);
   const rBad = await intenta('/api/estudio/recibir', { metodo: 'POST', cuerpo: '{}', cabeceras: { Authorization: 'Bearer ' + 'a'.repeat(64), 'X-Meta': '1' } });
   rBad.status === 401 ? ok('la clave del script rechaza una clave falsa') : f(`SEGURIDAD: /api/estudio/recibir con una clave falsa contesta ${rBad.status} (debía ser 401)`);
 
