@@ -629,14 +629,19 @@ accion('apunte-favorito', d => {
   render();
 });
 
-accion('apunte-borrar', async d => {
-  if (!await confirmar('Se borra este apunte.', 'Borrar')) return;
-  const a = listaApuntes().find(x => x.id === d.id);
-  guardarLista(listaApuntes().filter(x => x.id !== d.id));
+/** Quita un apunte y su archivo (en este aparato y en la cuenta). */
+export async function quitarApunte(id) {
+  const a = listaApuntes().find(x => x.id === id);
+  guardarLista(listaApuntes().filter(x => x.id !== id));
   if (a && a.tipo !== 'texto') {
     try { await borrarBlob(a.id); } catch { /* ya no estaba */ }
     borrarArchivoRemoto(a.id); // en segundo plano: si falla, queda huérfano en el servidor, no grave
   }
+}
+
+accion('apunte-borrar', async d => {
+  if (!await confirmar('Se borra este apunte.', 'Borrar')) return;
+  await quitarApunte(d.id);
   cerrarHoja();
   render();
   aviso('Borrado');

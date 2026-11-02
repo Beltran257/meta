@@ -154,6 +154,7 @@ const DIAS_PREGUNTA = 7;
     `ajustes` = { reglas: {tituloNormalizado: asignaturaId | 'no'},
                   decisiones: {idBloque: {hecho?: bool, asignaturaId?: id | 'no'}} } */
 const DIAS_TEMA = 14;
+const minutosReales = d => (Number.isFinite(d?.minutos) && d.minutos > 0 ? Math.round(d.minutos) : 0);
 
 export function sesionesDeBloques(bloques, asignaturas, ajustes = {}, ahora = Date.now(), temas = []) {
   const reglas = ajustes.reglas || {};
@@ -203,7 +204,8 @@ export function sesionesDeBloques(bloques, asignaturas, ajustes = {}, ahora = Da
   hechas.sort((x, y) => x.b.inicio.localeCompare(y.b.inicio));
   let cubierto = 0;
   for (const { b, asignaturaId, temaId } of hechas) {
-    const ini = Date.parse(b.inicio), fin = Date.parse(b.fin);
+    // Si dijo cuánto estudió de verdad (decisión `minutos`), manda sobre lo planificado.
+    const ini = Date.parse(b.inicio), fin = minutosReales(decisiones[b.id]) ? ini + minutosReales(decisiones[b.id]) * 60000 : Date.parse(b.fin);
     const minutos = Math.round((fin - Math.max(ini, cubierto)) / 60000);
     cubierto = Math.max(cubierto, fin);
     if (minutos < 1) continue;
@@ -301,6 +303,18 @@ function decidir(idBloque, cambio, regla) {
 
 /** "¿Lo hiciste?" — para un bloque de la última semana sin marcar. */
 export const responder = (idBloque, hecho) => decidir(idBloque, { hecho });
+
+/** Historial: "esto no lo estudié" (se quita de las horas) y su vuelta atrás. */
+export const quitarSesion = idBloque => decidir(idBloque, { hecho: false });
+export const restaurarSesion = idBloque => decidir(idBloque, { hecho: true });
+/** "Estudié X minutos, no lo planificado." */
+export const ajustarMinutos = (idBloque, minutos) => decidir(idBloque, { minutos: Math.max(1, Math.min(600, Math.round(minutos))) });
+
+/** Los bloques que él quitó del historial (para poder devolverlos). */
+export function quitadas() {
+  const dec = ajustes().decisiones;
+  return cache().bloques.filter(b => dec[b.id]?.hecho === false && b.estado === 'hecha');
+}
 
 /** "¿De qué asignatura es?" — asignaturaId o 'no' (no es estudio). Con
     `recordar`, vale también para todos los bloques con ese mismo título. */

@@ -249,6 +249,16 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
     : mal('script generado incorrecto');
 }
 
+/* ------------------------------ historial: quitar y corregir --------------- */
+{
+  const b = { id: 'h1', titulo: 'Estudiar Matemáticas', inicio: '2026-10-05T16:00:00.000Z', fin: '2026-10-05T18:00:00.000Z', estado: 'hecha' };
+  const r = ajustes => sesionesDeBloques([b], ASIG, ajustes, Date.parse('2026-10-06T10:00:00Z')).sesiones;
+  igual('sin tocar cuenta lo planificado (120 min)', r({}).map(s => s.minutos), [120]);
+  igual('"estudié 45 min" manda sobre lo planificado', r({ decisiones: { h1: { minutos: 45 } } }).map(s => s.minutos), [45]);
+  igual('"no lo estudié" quita la sesión', r({ decisiones: { h1: { hecho: false } } }).length, 0);
+  igual('devolverla la recupera con su tiempo corregido', r({ decisiones: { h1: { hecho: true, minutos: 30 } } }).map(s => s.minutos), [30]);
+}
+
 /* ------------------------------ inicio de curso --------------------------- */
 inicioCurso(new Date(2026, 9, 18)) === '2026-09-01' && inicioCurso(new Date(2027, 2, 3)) === '2026-09-01'
   && inicioCurso(new Date(2027, 8, 2)) === '2027-09-01'

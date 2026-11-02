@@ -14,7 +14,7 @@
 import { leer, guardar } from './store.js';
 import { emitir } from './bus.js';
 import { hoyLocal, sumaDias, diasHasta } from './fmt.js';
-import { comparaOrden, enlacesDeApuntes, unirNombres } from './temario.js';
+import { comparaOrden, enlacesDeApuntes, unirNombres, unidadDe } from './temario.js';
 
 export const PASOS = [1, 3, 7, 16, 35];
 
@@ -81,6 +81,47 @@ export function enlazarApuntes(asignaturaId, { soloContar = false } = {}) {
   emitir('local-cambio');
   emitir('datos-cambio', ['apuntesMeta']);
   return enlaces.length;
+}
+
+/** Qué aporta un archivo de temario que se va ampliando, SIN guardar nada:
+    temas nuevos, temas que ya estaban y, de estos, los apartados nuevos. */
+export function novedadesDeTemario(asignaturaId, nombres, grupos) {
+  const propios = temasDe(asignaturaId);
+  const numDe = n => unidadDe(n)?.num ?? null;
+  const tieneNum = new Set(propios.map(t => numDe(t.nombre)).filter(x => x != null));
+  const nuevosNombres = unirNombres([nombres || []], propios.map(t => t.nombre));
+  const nuevosNum = new Set(nuevosNombres.map(numDe).filter(x => x != null));
+  const ampliados = [];
+  for (const g of grupos || []) {
+    const t = propios.find(x => numDe(x.nombre) === g.num);
+    if (!t) continue;
+    const tenia = new Set((t.apartados || []).map(a => a.c));
+    const nuevos = t.apartados ? g.apartados.filter(a => !tenia.has(a.c)) : [];     // sin apartados guardados aún: se guardan, no son "novedad"
+    if (nuevos.length) ampliados.push({ tema: t.nombre, apartados: nuevos.map(a => a.c) });
+  }
+  return { nuevos: nuevosNombres, conocidos: (nombres || []).filter(n => tieneNum.has(numDe(n)) && !nuevosNum.has(numDe(n))), ampliados };
+}
+
+/** Guarda los apartados en sus temas (los que ya había se conservan con su
+    fecha; los nuevos llevan la de hoy para poder marcarlos "nuevo"). */
+export function guardarApartados(asignaturaId, grupos) {
+  const propios = temasDe(asignaturaId);
+  const hoy = Date.now();
+  let cambios = 0;
+  const lista = listaTemas().map(t => {
+    if (t.asignaturaId !== asignaturaId) return t;
+    const g = (grupos || []).find(x => x.num === unidadDe(t.nombre)?.num);
+    if (!g) return t;
+    const previos = t.apartados || [];
+    const tenia = new Set(previos.map(a => a.c));
+    const primeraVez = !t.apartados;
+    const nuevos = g.apartados.filter(a => !tenia.has(a.c)).map(a => ({ ...a, desde: primeraVez ? null : hoy }));
+    if (!nuevos.length) return t;
+    cambios += nuevos.length;
+    return { ...t, apartados: [...previos, ...nuevos].sort((a, b) => a.c.localeCompare(b.c, 'es', { numeric: true })) };
+  });
+  if (cambios && propios.length) guardarTemas(lista);
+  return cambios;
 }
 
 export function editarTema(id, cambios) {

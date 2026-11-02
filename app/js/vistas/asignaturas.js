@@ -10,10 +10,10 @@ import { accion, on, emitir } from '../core/bus.js';
 import { escapa, duracion, diasHasta, fechaCorta, nota as fnota, pct } from '../core/fmt.js';
 import { PALETA, TIPOS_ASIGNATURA, listaAsignaturas, asignaturaDe, siguienteColor, nuevoId, tipoDe, fusionarAsignatura, contenido } from '../core/asignaturas.js';
 import { asignaturaDeTitulo, norma } from '../core/calendario.js';
-import { temasDeTitulos, unirNombres } from '../core/temario.js';
+import { temasDeTitulos, unirNombres, apartadosDeTexto } from '../core/temario.js';
 import { temasDeArchivo, tipoDeArchivo } from '../core/temario-lectura.js';
-import { guardarArchivoApunte } from './apuntes.js';
-import { temasDe, crearTema, crearTemas, editarTema, borrarTema, dominioMedio, enlazarApuntes } from '../core/temas.js';
+import { guardarArchivoApunte, quitarApunte } from './apuntes.js';
+import { temasDe, crearTema, crearTemas, editarTema, borrarTema, dominioMedio, enlazarApuntes, novedadesDeTemario, guardarApartados } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import { abrirNotas, mediaGeneral } from './notas.js';
 
@@ -327,6 +327,12 @@ accion('tema-abrir', d => {
         <input id="tema-dominio" type="number" min="0" max="100" value="${t.dominio || 0}">
       </div>
 
+      ${(t.apartados || []).length ? `
+        <div class="seccion-cab"><h2>Apartados</h2><span class="apag">${t.apartados.length}</span></div>
+        <ul class="lista suelta">
+          ${t.apartados.map(a => `<li class="fila"><span class="izq"><span class="t1">${escapa(a.c)} ${escapa(a.t)}</span></span>${a.desde && Date.now() - a.desde < 21 * 864e5 ? '<span class="der"><span class="pil bien">nuevo</span></span>' : ''}</li>`).join('')}
+        </ul>` : ''}
+
       <div class="parrafo chico">
         ${t.ultimoRepaso ? `Último repaso: ${escapa(t.ultimoRepaso)}.` : 'Nunca repasado.'}
         ${t.proximoRepaso ? ` Próximo: ${escapa(t.proximoRepaso)}.` : ''}
@@ -349,6 +355,7 @@ accion('tema-abrir', d => {
    texto: core/temario.js (con pruebas en tools/prueba-temario.mjs). */
 
 let archivosTemario = [];       // lo elegido en la hoja abierta, para poder guardarlo en Apuntes
+let gruposTemario = [];         // apartados leídos de los archivos (para marcar lo nuevo al volver a subir uno ampliado)
 
 const lineasDe = ta => ta.value.split('\n').map(l => l.trim()).filter(Boolean);
 const ponLineas = (ta, l) => { ta.value = l.join('\n'); };
@@ -369,6 +376,7 @@ export function abrirTemarioLote(asignaturaId) {
   const a = asignaturaDe(asignaturaId);
   if (!a) return;
   archivosTemario = [];
+  gruposTemario = [];
   const ya = temasDe(a.id).map(t => t.nombre);
   const deApuntes = unirNombres([temasDeTitulos(leer('apuntesMeta', []).filter(x => x.asignaturaId === a.id).map(x => x.titulo))], ya);
   hoja({
@@ -411,10 +419,18 @@ export function abrirTemarioLote(asignaturaId) {
             const r = await temasDeArchivo(f);
             const nuevos = unirNombres([lineasDe(ta), r.temas], ya);
             ponLineas(ta, nuevos);
+            const grupos = apartadosDeTexto(r.texto);
+            gruposTemario.push(...grupos);
+            const nov = novedadesDeTemario(asignaturaId, r.temas, grupos);
+            const partesNov = [
+              nov.nuevos.length ? `nuevos: ${nov.nuevos.join(', ')}` : '',
+              nov.ampliados.length ? `apartados nuevos en ${nov.ampliados.map(x => `${x.tema.split('.')[0]} (${x.apartados.join(', ')})`).join('; ')}` : '',
+              nov.conocidos.length ? `ya tenías ${nov.conocidos.map(n => n.split('.')[0]).join(', ')}` : '',
+            ].filter(Boolean).join(' · ');
             estados[i] = { nombre: f.name, ok: r.temas.length > 0 || r.modo === 'grande',
               texto: r.modo === 'grande' ? 'Es muy grande para leerlo: se guarda en Apuntes igualmente. Para sacar sus temas, ponle "Tema N …" al nombre o pega el índice.'
                 : r.temas.length
-                ? `${r.temas.length} ${r.temas.length === 1 ? 'tema' : 'temas'}${r.modo === 'ia' ? ' (con IA: revísalos)' : r.modo === 'nombre' ? ' · el que dice el nombre del archivo' : ''}`
+                ? `${r.temas.length} ${r.temas.length === 1 ? 'tema' : 'temas'}${r.modo === 'ia' ? ' (con IA: revísalos)' : r.modo === 'nombre' ? ' · el que dice el nombre del archivo' : ''}${partesNov ? ' · ' + partesNov : ''}`
                 : 'Lo he leído pero no encuentro temas claros. Pega el índice a mano o prueba con otra página.' };
             if (['pdf', 'foto'].includes(tipoDeArchivo(f))) archivosTemario.push({ f, tema: r.modo === 'nombre' ? r.temas[0] : null });
           } catch (e) {
@@ -453,6 +469,10 @@ accion('tema-lote-guardar', async (d, el) => {
       // un índice o una guía, como "Temario · …".
       const base = f.name.replace(/\.[a-z0-9]+$/i, '').replace(/_+/g, ' ').trim();
       const titulo = tema ? base : `Temario · ${base}`;
+      // Un temario que se va ampliando se vuelve a subir con el mismo nombre: la
+      // versión nueva sustituye a la anterior (no se duplica ni se descarta).
+      const previo = !tema && leer('apuntesMeta', []).find(x => x.asignaturaId === d.id && norma(x.titulo) === norma(titulo));
+      if (previo) { await quitarApunte(previo.id); existentes.delete(norma(titulo)); }
       if (existentes.has(norma(titulo))) continue;
       const temaId = tema ? temasDe(d.id).find(t => norma(t.nombre) === norma(tema))?.id || null : null;
       try {
@@ -463,12 +483,14 @@ accion('tema-lote-guardar', async (d, el) => {
   }
   // Los apuntes ya subidos cuyo título dice "Tema 3" se cuelgan del tema 3.
   const colgados = enlazarApuntes(d.id);
+  const apartados = guardarApartados(d.id, gruposTemario);
   cerrarHoja();
   render();
   const partes = [
     creados.length ? `${creados.length} ${creados.length === 1 ? 'tema añadido' : 'temas añadidos'}` : 'Esos temas ya estaban',
     guardados ? `${guardados} ${guardados === 1 ? 'archivo guardado' : 'archivos guardados'} en Apuntes` : '',
     colgados ? `${colgados} ${colgados === 1 ? 'apunte ordenado' : 'apuntes ordenados'} por tema` : '',
+    apartados ? `${apartados} ${apartados === 1 ? 'apartado' : 'apartados'} anotados` : '',
   ].filter(Boolean);
   aviso(partes.join(' · '));
 });

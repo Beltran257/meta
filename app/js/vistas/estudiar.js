@@ -558,7 +558,7 @@ function bloqueUltimas() {
   if (!l.length) return '';
   return `
     <div class="seccion">
-      <div class="seccion-cab"><h2>Últimas sesiones</h2></div>
+      <div class="seccion-cab"><h2>Últimas sesiones</h2><button class="boton fantasma chico" data-accion="hist-abrir" data-id="">Ver todo el historial</button></div>
       <div class="lista">
         ${l.map(s => {
           const a = asignaturaDe(s.asignaturaId);
@@ -575,6 +575,100 @@ function bloqueUltimas() {
       </div>
     </div>`;
 }
+
+/* ============================== HISTORIAL ==================================
+   Todas las horas estudiadas, por asignatura, con su tarea y su tema. Lo que no
+   se estudió se quita (o se corrige su duración): las horas, el plan y el
+   análisis se rehacen solos. Lo que viene del calendario se corrige como una
+   decisión suya (sobrevive aunque Google Tasks borre la tarea); lo apuntado a
+   mano se edita directamente. */
+function abrirHistorial(filtro = '') {
+  const todas = motor.listaSesiones().slice().sort((a, b) => (b.fecha + b.creado).toString().localeCompare((a.fecha + a.creado).toString()));
+  const asigs = [...new Set(todas.map(s => s.asignaturaId))].map(asignaturaDe).filter(Boolean);
+  const lista = filtro ? todas.filter(s => s.asignaturaId === filtro) : todas;
+  const total = lista.reduce((t, s) => t + (s.minutos || 0), 0);
+  const quitadas = calendario.quitadas();
+  hoja({
+    titulo: 'Historial de estudio',
+    ancha: true,
+    cuerpo: `
+      <div class="campo">
+        <label for="hist-asig">Asignatura</label>
+        <select id="hist-asig">
+          <option value="">Todas</option>
+          ${asigs.map(a => `<option value="${escapa(a.id)}" ${a.id === filtro ? 'selected' : ''}>${escapa(a.nombre)}</option>`).join('')}
+        </select>
+      </div>
+      <p class="pista">${lista.length} sesiones · ${escapa(duracion(total))}. Si algo no lo estudiaste, quítalo o cambia el tiempo.</p>
+      <div class="lista">
+        ${lista.length ? lista.map(s => {
+          const a = asignaturaDe(s.asignaturaId), t = s.temaId ? temaDe(s.temaId) : null;
+          const cal = s.origen === 'calendario';
+          return `
+            <div class="fila">
+              <span class="izq">
+                <span class="t1">${escapa(cal ? s.notas : (t?.nombre || a?.nombre || 'Sesión'))}</span>
+                <span class="t2">${a ? `<span class="asig"><i data-bg="${escapa(a.color)}"></i><span>${escapa(a.nombre)}</span></span> · ` : ''}${t ? escapa(t.nombre) + ' · ' : ''}${escapa(fechaCorta(s.fecha))}</span>
+              </span>
+              <span class="der">
+                <span class="n1">${escapa(duracion(s.minutos))}</span>
+                <button class="boton fantasma chico" data-accion="hist-minutos" data-id="${escapa(s.id)}" data-filtro="${escapa(filtro)}">Tiempo</button>
+                <button class="boton fantasma chico" data-accion="hist-quitar" data-id="${escapa(s.id)}" data-filtro="${escapa(filtro)}">Quitar</button>
+              </span>
+            </div>`;
+        }).join('') : '<div class="vacio"><p>Sin sesiones.</p></div>'}
+      </div>
+      ${quitadas.length ? `
+        <div class="seccion-cab"><h2>Quitadas</h2><span class="apag">${quitadas.length}</span></div>
+        <div class="lista">
+          ${quitadas.map(b => `
+            <div class="fila">
+              <span class="izq"><span class="t1">${escapa(b.titulo)}</span><span class="t2">${escapa(fechaCorta(b.inicio.slice(0, 10)))}</span></span>
+              <span class="der"><button class="boton fantasma chico" data-accion="hist-volver" data-id="${escapa(b.id)}" data-filtro="${escapa(filtro)}">Devolver</button></span>
+            </div>`).join('')}
+        </div>` : ''}`,
+    pie: '<button class="boton fantasma" data-accion="cerrar-hoja">Cerrar</button>',
+    alAbrir(v) {
+      v.querySelector('#hist-asig').addEventListener('change', e => { cerrarHoja(); abrirHistorial(e.target.value); });
+    },
+  });
+}
+accion('hist-abrir', d => abrirHistorial(d.id || ''));
+const reabre = d => { cerrarHoja(); abrirHistorial(d.filtro || ''); };
+
+accion('hist-quitar', async (d) => {
+  const s = motor.listaSesiones().find(x => x.id === d.id);
+  if (!s) return;
+  if (!await confirmar('No cuenta como estudiado: se quitan esas horas. Puedes devolverlo después.', 'Quitar')) return;
+  if (s.origen === 'calendario') calendario.quitarSesion(s.id.replace(/^cal-/, ''));
+  else { guardar('sesiones', motor.listaSesiones().filter(x => x.id !== s.id)); emitir('local-cambio'); emitir('datos-cambio', ['sesiones']); }
+  reabre(d);
+});
+accion('hist-volver', d => { calendario.restaurarSesion(d.id); reabre(d); });
+accion('hist-minutos', d => {
+  const s = motor.listaSesiones().find(x => x.id === d.id);
+  if (!s) return;
+  cerrarHoja();
+  hoja({
+    titulo: 'Cuánto estudiaste de verdad',
+    cuerpo: `
+      <div class="campo">
+        <label for="hist-min">Minutos (ahora ${s.minutos})</label>
+        <input id="hist-min" type="number" inputmode="numeric" min="1" max="600" value="${s.minutos}">
+      </div>`,
+    pie: `<button class="boton fantasma" data-accion="hist-cancelar" data-filtro="${escapa(d.filtro || '')}">Cancelar</button>
+          <button class="boton" data-accion="hist-minutos-ok" data-id="${escapa(d.id)}" data-filtro="${escapa(d.filtro || '')}">Guardar</button>`,
+  });
+});
+accion('hist-cancelar', reabre);
+accion('hist-minutos-ok', (d, el) => {
+  const m = Number(el.closest('.hoja').querySelector('#hist-min').value);
+  if (!(m >= 1)) return aviso('Pon los minutos', 'mal');
+  const s = motor.listaSesiones().find(x => x.id === d.id);
+  if (s?.origen === 'calendario') calendario.ajustarMinutos(s.id.replace(/^cal-/, ''), m);
+  else if (s) { guardar('sesiones', motor.listaSesiones().map(x => (x.id === s.id ? { ...x, minutos: Math.round(m) } : x))); emitir('local-cambio'); emitir('datos-cambio', ['sesiones']); }
+  reabre(d);
+});
 
 export default {
   montar(el) {

@@ -23,7 +23,7 @@ globalThis.localStorage = {
 const T = await import('../app/js/core/temario.js');
 const { temasDeArchivo } = await import('../app/js/core/temario-lectura.js');
 const { guardar, leer } = await import('../app/js/core/store.js');
-const { crearTemas, temasDe, enlazarApuntes } = await import('../app/js/core/temas.js');
+const { crearTemas, temasDe, enlazarApuntes, novedadesDeTemario, guardarApartados } = await import('../app/js/core/temas.js');
 const { tipoDeArchivo } = await import('../app/js/core/temario-lectura.js');
 const { leerArchivo } = await import('../worker/temario.js');
 
@@ -300,6 +300,33 @@ igual('tipo de archivo por extensión o MIME',
   const raro = await leerArchivo(envPdf, bytes, 'application/zip', 'x.zip');
   const sinIa = await leerArchivo({}, bytes, 'application/pdf', 'x.pdf');
   raro.status === 415 && sinIa.status === 503 ? bien('formato raro → 415; sin IA enlazada → 503') : mal(`errores: ${raro.status} ${sinIa.status}`);
+}
+
+
+/* ------------- un archivo que se va ampliando: qué es nuevo --------------- */
+{
+  const v1 = `ÍNDICE\nTEMA 1 · MATRICES.........3\n1.1  Definición y notación........3\n1.2  Tipos de matrices........4\nTEMA 3 · SISTEMAS DE ECUACIONES......18\n3.1  Resolución de sistemas por Gauss.....18\n` +
+    `TEMA 1 · MATRICES\n1.1  Definición y notación\nA ∈ Mm×n\n1.2  Tipos de matrices\n23.000 44.000\nTEMA 3 · SISTEMAS DE ECUACIONES\n3.1  Resolución de sistemas por Gauss\n`;
+  const g1 = T.apartadosDeTexto(v1);
+  igual('apartados por tema, sin fórmulas ni cifras', g1.map(g => [g.num, g.apartados.map(a => a.c)]), [[1, ['1.1', '1.2']], [3, ['3.1']]]);
+  const t1 = T.temasDeTexto(v1).temas;
+  igual('los temas del archivo', t1, ['Tema 1. Matrices', 'Tema 3. Sistemas de ecuaciones']);
+  guardar('temas', []);
+  igual('primera subida: todo es nuevo', novedadesDeTemario('mat', t1, g1).nuevos, t1);
+  crearTemas('mat', t1);
+  guardarApartados('mat', g1);
+  // Una semana después: el mismo archivo con 1.3 en el tema 1 y un tema 4 entero.
+  const v2 = v1 + `1.3  Operaciones con matrices\nTEMA 4 · PROGRAMACIÓN LINEAL\n4.1  Región factible\n`;
+  const g2 = T.apartadosDeTexto(v2), t2 = T.temasDeTexto(v2).temas;
+  const n = novedadesDeTemario('mat', t2, g2);
+  igual('lo nuevo: el tema 4', n.nuevos, ['Tema 4. Programación lineal']);
+  igual('lo que ya estaba', n.conocidos, ['Tema 1. Matrices', 'Tema 3. Sistemas de ecuaciones']);
+  igual('apartado nuevo dentro de un tema que ya tenía', n.ampliados, [{ tema: 'Tema 1. Matrices', apartados: ['1.3'] }]);
+  crearTemas('mat', t2);
+  igual('guarda solo los apartados que no estaban', guardarApartados('mat', g2) >= 1, true);
+  igual('el mismo archivo otra vez: nada nuevo',
+    [novedadesDeTemario('mat', t2, g2).nuevos, novedadesDeTemario('mat', t2, g2).ampliados], [[], []]);
+  igual('no duplica temas', temasDe('mat').map(t => t.nombre), ['Tema 1. Matrices', 'Tema 3. Sistemas de ecuaciones', 'Tema 4. Programación lineal']);
 }
 
 console.log(fallos ? `\n${fallos} fallo(s)` : '\ntodo bien');

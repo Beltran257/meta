@@ -174,6 +174,28 @@ const lineasDe = texto => desglosa(texto).split('\n')
 /** Si el título de una entrada no es legible ("TEMA2ELPENSAMIENTODEPLATON"). */
 const ilegible = rest => rest && !/\s/.test(rest) && rest.length > 18;
 
+/** Los apartados "1.1 Título" de cada tema, agrupados por número de tema. Mira
+    el índice Y los títulos del cuerpo (un apartado que solo está en el cuerpo,
+    por ser nuevo, también cuenta). Sirve para saber, al volver a subir un
+    archivo que se va ampliando, qué apartados son nuevos.
+    → [{ num, apartados: [{ c: '1.1', t: 'Definición y notación' }] }] */
+export function apartadosDeTexto(texto) {
+  const porTema = new Map();
+  for (const crudo of String(texto || '').split(/\r?\n/)) {
+    const l = crudo.replace(/^[#>*\s_-]+/, '').replace(/[*_]+$/, '').replace(/\s*\.{3,}\s*\d*\s*$/, '').replace(/\s+\d{1,3}$/, '').trim();
+    const m = /^(\d{1,2})\.(\d{1,2})\s+([A-ZÁÉÍÓÚÑ][^\n]{2,80})$/.exec(l);
+    if (!m || /[=∈]|\d{2,}/.test(m[3])) continue;                  // fórmulas y cifras de ejemplos no son títulos
+    const [, num, sub, titulo] = m;
+    const lista = porTema.get(+num) || new Map();
+    const previo = lista.get(+sub);
+    if (!previo || titulo.length > previo.length) lista.set(+sub, titulo.replace(/\s{2,}/g, ' ').trim());
+    porTema.set(+num, lista);
+  }
+  return [...porTema.entries()].sort((a, b) => a[0] - b[0]).map(([num, lista]) => ({
+    num, apartados: [...lista.entries()].sort((a, b) => a[0] - b[0]).map(([sub, t]) => ({ c: `${num}.${sub}`, t })),
+  }));
+}
+
 /** Del texto de un temario a los temas que contiene, ya ordenados.
     Devuelve { temas: string[], modo }; modo = 'palabra' | 'lista' | 'ninguno'. */
 export function temasDeTexto(texto) {
