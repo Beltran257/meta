@@ -497,10 +497,11 @@ accion('tema-lote-guardar', async (d, el) => {
       // versión nueva sustituye a la anterior (no se duplica ni se descarta).
       const previo = leer('apuntesMeta', []).find(x => x.asignaturaId === d.id && norma(x.titulo) === norma(titulo));
       if (previo) { await quitarApunte(previo.id); existentes.delete(norma(titulo)); }
+      const reemplaza = previo?.id || null;
       if (existentes.has(norma(titulo))) continue;
       const temaId = tema ? temasDe(d.id).find(t => norma(t.nombre) === norma(tema))?.id || null : null;
       try {
-        await guardarArchivoApunte({ archivo: f, tipo: tipoDeArchivo(f), titulo, asignaturaId: d.id, temaId });
+        await guardarArchivoApunte({ archivo: f, tipo: tipoDeArchivo(f), titulo, asignaturaId: d.id, temaId, reemplaza });
         guardados++;
       } catch { /* un archivo que no se guarda no impide guardar los temas */ }
     }

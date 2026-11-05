@@ -479,7 +479,7 @@ function evaluacionHabitual() {
     subida a la cuenta en segundo plano. Lo usan el formulario de apuntes y la
     subida del temario (vistas/asignaturas.js), para que sea UN solo camino.
     Devuelve el apunte creado. */
-export async function guardarArchivoApunte({ archivo, tipo, titulo, asignaturaId, temaId = null, evaluacion = null }) {
+export async function guardarArchivoApunte({ archivo, tipo, titulo, asignaturaId, temaId = null, evaluacion = null, reemplaza = null }) {
   const id = nuevoId();
   const listo = tipo === 'foto' ? await reducirFoto(archivo) : archivo;
   await guardarBlob(id, listo, tipo);
@@ -491,7 +491,7 @@ export async function guardarArchivoApunte({ archivo, tipo, titulo, asignaturaId
   guardarLista([...listaApuntes(), nuevo]);
   // En segundo plano: si sube bien, marcará r2:true en el próximo sync (ver
   // worker/archivos.js) y no hace falta esperar aquí a que termine.
-  subirArchivo(nuevo, listo);
+  subirArchivo(nuevo, listo, { reemplaza });
   return nuevo;
 }
 

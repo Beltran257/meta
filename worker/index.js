@@ -503,6 +503,7 @@ async function apiArchivosSubir(request, env, usuario, ctx) {
      solo entran los tipos de imagen que la app usa de verdad. */
   const mime = tipo === 'pdf' ? 'application/pdf' : mimeDeFoto(request.headers.get('X-Meta-Mime'));
   const apunte = { id, tipo, titulo, asignaturaId, evaluacion, fecha, r2: true };
+  const reemplaza = RE_ID_APUNTE.test(request.headers.get('X-Meta-Reemplaza') || '') ? request.headers.get('X-Meta-Reemplaza') : null;
 
   if (parte.trozos) {
     // Archivo grande: cada trozo se guarda aparte; el último cierra el archivo
@@ -510,13 +511,13 @@ async function apiArchivosSubir(request, env, usuario, ctx) {
     await archivos.subirParte(env, espacio, id, parte.parte, bytes);
     if (parte.parte === parte.partes - 1) {
       await archivos.cerrarPartes(env, espacio, id, parte.partes, parte.total, mime);
-      await archivos.registrarApunte(env, espacio, { ...apunte, actualizado: Date.now() });
+      await archivos.registrarApunte(env, espacio, { ...apunte, actualizado: Date.now() }, reemplaza);
     }
     return json({ ok: true }, 200);
   }
 
   await archivos.subir(env, espacio, id, bytes, mime);
-  await archivos.registrarApunte(env, espacio, { ...apunte, actualizado: Date.now() });
+  await archivos.registrarApunte(env, espacio, { ...apunte, actualizado: Date.now() }, reemplaza);
 
   // El OCR va en segundo plano: no tiene sentido que subir una foto se
   // note más lento por una llamada a Workers AI que puede tardar varios

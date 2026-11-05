@@ -68,7 +68,7 @@ export function trocea(tam) {
   return Array.from({ length: n }, (_, i) => ({ desde: i * TROZO, hasta: Math.min(tam, (i + 1) * TROZO) }));
 }
 
-export async function subirArchivo(a, blob) {
+export async function subirArchivo(a, blob, { reemplaza = null } = {}) {
   if (!sesion.dentro() || blob.size > MAX_SUBIDA) return false;
   const base = {
     'X-Meta': '1',
@@ -80,6 +80,7 @@ export async function subirArchivo(a, blob) {
     'X-Meta-Evaluacion': a.evaluacion || '',
     'X-Meta-Fecha': a.fecha || '',
     'X-Meta-Mime': blob.type || '',
+    ...(reemplaza ? { 'X-Meta-Reemplaza': reemplaza } : {}),
   };
   const trozos = trocea(blob.size);
   try {

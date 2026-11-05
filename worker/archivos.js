@@ -120,10 +120,14 @@ export async function borrar(env, espacio, id) {
     entrada dentro de la lista y se escribe con fecha nueva, igual que hace
     cualquier aparato al sincronizar — así el resto del sistema (fusión por
     fecha más reciente, conectores) no necesita saber que esto existe. */
-export async function registrarApunte(env, espacio, entrada) {
+export async function registrarApunte(env, espacio, entrada, reemplazaId = null) {
   const buzon = (await leerBuzon(env.META_DATOS, espacio)) || { claves: {}, creado: Date.now() };
   const actual = buzon.claves?.apuntesMeta?.datos || [];
-  const lista = [...actual.filter(a => a.id !== entrada.id), entrada];
+  // `reemplazaId`: la versión nueva de un archivo sustituye a la anterior. Se
+  // quita aquí, en la misma escritura: si solo se quitara en el aparato, esta
+  // lista (que aún la trae y lleva fecha más nueva) la devolvería al sincronizar.
+  const lista = [...actual.filter(a => a.id !== entrada.id && a.id !== reemplazaId), entrada];
+  if (reemplazaId && reemplazaId !== entrada.id) await borrar(env, espacio, reemplazaId);
   return fusionar(env.META_DATOS, espacio, {
     claves: { apuntesMeta: { ts: Date.now(), datos: lista } },
   });

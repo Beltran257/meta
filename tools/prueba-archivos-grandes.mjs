@@ -12,6 +12,7 @@ import { trocea, TROZO, UMBRAL_TROZOS, MAX_SUBIDA } from '../app/js/core/archivo
 let fallos = 0;
 const mal = m => { console.log('❌ ' + m); fallos++; };
 const bien = m => console.log('✅ ' + m);
+const igual = (que, a, b) => (JSON.stringify(a) === JSON.stringify(b) ? bien(que) : mal(`${que} — salió ${JSON.stringify(a)}, tocaba ${JSON.stringify(b)}`));
 const prueba = (cond, m) => (cond ? bien(m) : mal(m));
 
 const LIMITE_KV = 25 * 1024 * 1024;
@@ -88,6 +89,31 @@ await archivos.subirParte(env, 'esp', 'prh', 0, new Uint8Array([1]));
 await archivos.subirParte(env, 'esp', 'prh', 1, new Uint8Array([2]));
 await archivos.cerrarPartes(env, 'esp', 'prh', 2, 2, 'application/pdf');
 prueba(![...env.META_ARCHIVOS.m.keys()].some(k => /prh\.p[23]$/.test(k)), 'al rehacer con menos trozos no quedan sobrantes');
+
+
+/* 8. La versión nueva de un archivo sustituye a la anterior EN EL SERVIDOR: si solo
+      se quitara en el aparato, la lista del servidor (más nueva) la devolvería. */
+{
+  const datos = new Map();
+  const kv = {
+    async get(k, tipo) { const v = datos.get(k); return v == null ? null : tipo === 'json' ? JSON.parse(v) : v; },
+    async put(k, v) { datos.set(k, String(v)); },
+    async delete(k) { datos.delete(k); },
+    async list() { return { keys: [], list_complete: true }; },
+  };
+  const env2 = { META_DATOS: kv, META_ARCHIVOS: kvFalso() };
+  await archivos.subir(env2, 'ESP', 'pviejo', new Uint8Array([1]).buffer, 'application/pdf');
+  await archivos.registrarApunte(env2, 'ESP', { id: 'pviejo', titulo: 'Bloque', r2: true });
+  const espera = () => new Promise(r => setTimeout(r, 5));      // la fusión se queda con la fecha más nueva: en producción pasan milisegundos entre peticiones
+  await espera();
+  await archivos.registrarApunte(env2, 'ESP', { id: 'potro', titulo: 'Otro', r2: true });
+  await espera();
+  await archivos.subir(env2, 'ESP', 'pnuevo', new Uint8Array([2]).buffer, 'application/pdf');
+  await archivos.registrarApunte(env2, 'ESP', { id: 'pnuevo', titulo: 'Bloque', r2: true }, 'pviejo');
+  const lista = JSON.parse(datos.get('sync:ESP')).claves.apuntesMeta.datos.map(a => a.id).sort();
+  igual('al reemplazar, la entrada vieja desaparece de la lista del servidor y la otra se queda', lista, ['pnuevo', 'potro']);
+  igual('y su archivo se borra', await archivos.abrir(env2, 'ESP', 'pviejo'), null);
+}
 
 if (fallos) { console.log(`\n${fallos} fallo(s)`); process.exit(1); }
 console.log('\nTodo bien.');
