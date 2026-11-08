@@ -369,5 +369,22 @@ igual('tipo de archivo por extensión o MIME',
     [['1.1', 'Bloque 1. Antigüedad y Edad Media'], ['1.2', 'Bloque 1. Antigüedad y Edad Media'], ['2.1', 'Bloque 2. Edad Moderna']]);
 }
 
+{
+  // Como lo escribe el centro: "B1 3.2 TÍTULO (REFERENTE 1)", en mayúsculas y con abreviaturas.
+  const crudo = `B1. 3.2 EL PRIMER PUNTO (REFERENTE 1)\nB1 4 EL SEGUNDO PUNTO (REFERENTE 2)\nB1 2.6 OR. Y CARAC. DEL TERCER PUNTO ... (REFERENTE 6)\nB2 UNIÓN DE LOS RRCC Y EL CUARTO PUNTO (REFERENTE 7)`;
+  const { subtemasDeGrupos } = await import('../app/js/core/temas.js');
+  const n = T.normalizaBloques(crudo);
+  igual('B1/B2: dos bloques', n.bloques, [1, 2]);
+  const items = subtemasDeGrupos(T.apartadosDeTexto(crudo), T.temasDeTexto(crudo).temas);
+  igual('B1/B2: numera por orden dentro del bloque y conserva el código y el referente',
+    items.map(i => i.nombre), [
+      '1.1 El Primer Punto (3.2 · Referente 1)', '1.2 El Segundo Punto (4 · Referente 2)',
+      '1.3 Origen y Características del Tercer Punto (2.6 · Referente 6)',
+      '2.1 Unión de los Reyes Católicos y el Cuarto Punto (Referente 7)']);
+  igual('B1/B2: cuelgan de "Bloque n"', items.map(i => i.padre), ['Bloque 1', 'Bloque 1', 'Bloque 1', 'Bloque 2']);
+  igual('una sola línea "B1 …" no se toma por temario de bloques', T.normalizaBloques('B1 hola mundo').bloques, []);
+  igual('un texto normal no se toca', T.normalizaBloques('Tema 1. A\nTema 2. B').bloques, []);
+}
+
 console.log(fallos ? `\n${fallos} fallo(s)` : '\ntodo bien');
 process.exit(fallos ? 1 : 0);

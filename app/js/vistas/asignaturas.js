@@ -10,7 +10,7 @@ import { accion, on, emitir } from '../core/bus.js';
 import { escapa, duracion, diasHasta, fechaCorta, nota as fnota, pct } from '../core/fmt.js';
 import { PALETA, TIPOS_ASIGNATURA, listaAsignaturas, asignaturaDe, siguienteColor, nuevoId, tipoDe, fusionarAsignatura, contenido } from '../core/asignaturas.js';
 import { asignaturaDeTitulo, norma } from '../core/calendario.js';
-import { temasDeTitulos, unirNombres, apartadosDeTexto, esquemaDeTexto } from '../core/temario.js';
+import { temasDeTitulos, unirNombres, apartadosDeTexto, esquemaDeTexto, normalizaBloques, temasDeTexto } from '../core/temario.js';
 import { temasDeArchivo, tipoDeArchivo } from '../core/temario-lectura.js';
 import { guardarArchivoApunte, quitarApunte } from './apuntes.js';
 import { comparaCodigos, subtemasDeGrupos, novedadesSubtemas, guardarSubtemas, temasDe, crearTema, crearTemas, editarTema, borrarTema, dominioMedio, enlazarApuntes, novedadesDeTemario, guardarApartados } from '../core/temas.js';
@@ -363,6 +363,18 @@ const codigoDe = n => /^(\d{1,2}(?:\.\d{1,2})?)\s/.exec(String(n || ''))?.[1] ||
 
 let archivosTemario = [];       // lo elegido en la hoja abierta, para poder guardarlo en Apuntes
 let itemsTemario = [];          // subtemas leídos (solo asignaturas con subtemas)
+
+/** Si el texto es un temario "B1 3.2 TÍTULO", lo deja en la lista a revisar como
+    puntos "1.1 Título" (los bloques viven en itemsTemario, no como líneas, para
+    que no se guarden como temas sueltos). Devuelve cuántos puntos reconoció. */
+function convierteBloques(ta) {
+  const crudo = ta.value;
+  if (!normalizaBloques(crudo).bloques.length) return 0;
+  const items = subtemasDeGrupos(apartadosDeTexto(crudo), temasDeTexto(crudo).temas);
+  itemsTemario = [...itemsTemario.filter(i => !items.some(n => n.codigo === i.codigo)), ...items];
+  ponLineas(ta, items.map(i => i.nombre));
+  return items.length;
+}
 let gruposTemario = [];         // apartados leídos de los archivos (para marcar lo nuevo al volver a subir uno ampliado)
 
 const lineasDe = ta => ta.value.split('\n').map(l => l.trim()).filter(Boolean);
@@ -416,6 +428,10 @@ export function abrirTemarioLote(asignaturaId) {
     alAbrir(v) {
       const ta = v.querySelector('#tema-lote-texto');
       const lista = v.querySelector('#tema-archivos-estado');
+      ta.addEventListener('paste', () => setTimeout(() => {
+        const n = convierteBloques(ta);
+        if (n) v.querySelector('#tema-lote-pista').textContent = `Reconocí ${n} puntos en sus bloques y les puse título y número. Revisa la lista y guarda: cada punto se podrá puntuar.`;
+      }, 0));
       v.querySelector('#tema-archivos').addEventListener('change', async ev => {
         const elegidos = [...ev.target.files];
         ev.target.value = '';
@@ -429,7 +445,8 @@ export function abrirTemarioLote(asignaturaId) {
             // Un archivo que ES un tema (por su nombre) trae su propio esquema; un índice general, los temas con sus apartados.
             const esquema = r.modo === 'nombre' && r.temas.length === 1 ? esquemaDeTexto(r.texto) : [];
             const grupos = esquema.length ? [{ tema: r.temas[0], num: null, apartados: esquema }] : apartadosDeTexto(r.texto);
-            const items = a.subtemas && grupos.length ? subtemasDeGrupos(grupos, r.temas) : [];
+            const porBloques = normalizaBloques(r.texto).bloques.length > 0;
+            const items = (a.subtemas || porBloques) && grupos.length ? subtemasDeGrupos(grupos, r.temas) : [];
             itemsTemario.push(...items);
             if (items.length) {
               // Con subtemas, la lista a revisar son los apartados (1.1, 1.2…), por orden.
@@ -473,6 +490,7 @@ accion('tema-lote-ordenar', (d, el) => {
 
 accion('tema-lote-guardar', async (d, el) => {
   const v = el.closest('.hoja');
+  convierteBloques(v.querySelector('#tema-lote-texto'));
   const nombres = lineasDe(v.querySelector('#tema-lote-texto'))
     .map(l => l.replace(/^\s*([-*•]|\d+[.)])\s+(?=\D)/, '').trim()).filter(Boolean);
   const guardarArchivos = v.querySelector('#tema-guardar-archivos')?.checked && archivosTemario.length;
@@ -485,6 +503,8 @@ accion('tema-lote-guardar', async (d, el) => {
   const sub = itemsTemario.length ? guardarSubtemas(d.id, itemsTemario, lineasCodigo.map(codigoDe)) : { creados: 0, detalles: 0 };
   const sueltos = crearTemas(d.id, nombres.filter(n => !lineasCodigo.includes(n)));
   const creados = { length: sub.creados + sueltos.length };
+  // Un temario por bloques solo tiene sentido con subtemas: se activan solos.
+  if (sub.creados && !asignaturaDe(d.id)?.subtemas) guardarAsignaturas(listaAsignaturas().map(x => (x.id === d.id ? { ...x, subtemas: true } : x)));
   let guardados = 0;
   if (guardarArchivos) {
     const existentes = new Set(leer('apuntesMeta', []).filter(x => x.asignaturaId === d.id).map(x => norma(x.titulo)));

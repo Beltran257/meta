@@ -174,6 +174,51 @@ const lineasDe = texto => desglosa(texto).split('\n')
 /** Si el título de una entrada no es legible ("TEMA2ELPENSAMIENTODEPLATON"). */
 const ilegible = rest => rest && !/\s/.test(rest) && rest.length > 18;
 
+/* ------------------------- temario "B1 3.2 TÍTULO" ------------------------
+   Así lo escribe el centro: una línea por punto, con el bloque en abreviatura
+   ("B1", "B2"), el número del punto dentro del currículo (3.2, 4…, opcional),
+   el título en MAYÚSCULAS con abreviaturas y la referencia entre paréntesis:
+
+       B1 2.6 OR. Y CARAC. DEL RÉGIMEN SEÑORIAL ... (REFERENTE 6)
+
+   Se pasa a la forma que ya entiende todo lo demás ("Bloque 1" y debajo
+   "1.1 Título"): el número lo pone el orden de lectura dentro del bloque, y lo
+   que traía el centro se conserva entre paréntesis para no perderlo. */
+const RE_BLOQUE_CORTO = /^\s*(?:[#>*•·-]+\s*)?B(\d{1,2})\b\.?\s*(?:(\d{1,2}(?:\.\d{1,2})?)\.?\s+)?(\S.*)$/;
+const ABREVIATURAS = [[/\bOR\./gi, 'ORIGEN'], [/\bCARAC\./gi, 'CARACTERÍSTICAS'], [/\bRRCC\b/gi, 'REYES CATÓLICOS'],
+  [/\bESP\./gi, 'ESPAÑA'], [/\bPOL\./gi, 'POLÍTICA'], [/\bECON\./gi, 'ECONOMÍA']];
+const esLineaBloque = l => { const m = RE_BLOQUE_CORTO.exec(l); return m && /\p{L}{3}/u.test(m[3]) ? m : null; };
+
+function tituloDeBloque(crudo) {
+  let ref = null;
+  let t = String(crudo).replace(/\(\s*referentes?\s+(\d+(?:\s*(?:a|y|-)\s*\d+)?)\s*\)/i, (m, r) => { ref = r.replace(/\s+/g, ' '); return ''; });
+  t = t.replace(/\s*(?:\.{2,}|…)\s*/g, ' ').replace(/\s+/g, ' ').trim();
+  for (const [re, por] of ABREVIATURAS) t = t.replace(re, por);   // antes de enFrase: un punto de abreviatura pondría mayúscula a la palabra siguiente
+  t = enFrase(t);
+  t = t.replace(/\s+/g, ' ').replace(/[\s.,;:–—-]+$/, '').trim();
+  return { titulo: t.charAt(0).toUpperCase() + t.slice(1), ref };
+}
+
+/** { texto, bloques: [1, 2…] } — si el texto trae al menos dos líneas "B<n> …",
+    lo reescribe como "Bloque n" + "n.k Título (código · Referente r)"; si no,
+    lo devuelve igual y `bloques` vacío. */
+export function normalizaBloques(texto) {
+  const lineas = String(texto || '').replace(/\r/g, '').split('\n');
+  if (lineas.filter(esLineaBloque).length < 2) return { texto: String(texto || ''), bloques: [] };
+  const cuenta = new Map(), salida = [];
+  for (const l of lineas) {
+    const m = esLineaBloque(l);
+    if (!m) { salida.push(l); continue; }
+    const b = +m[1], k = (cuenta.get(b) || 0) + 1;
+    if (k === 1) salida.push(`Bloque ${b}`);
+    cuenta.set(b, k);
+    const { titulo, ref } = tituloDeBloque(m[3]);
+    const marcas = [m[2], ref ? `Referente ${ref}` : ''].filter(Boolean).join(' · ');
+    salida.push(`${b}.${k} ${titulo}${marcas ? ` (${marcas})` : ''}`);
+  }
+  return { texto: salida.join('\n'), bloques: [...cuenta.keys()].sort((a, b) => a - b) };
+}
+
 /** Los apartados y subapartados ("1.1 Título", "1.2.1 Título") de cada tema,
     agrupados por número de tema. Mira el índice Y los títulos del cuerpo (uno
     que solo está en el cuerpo, por ser nuevo, también cuenta). Sirve para saber,
@@ -182,7 +227,7 @@ const ilegible = rest => rest && !/\s/.test(rest) && rest.length > 18;
     (n = nivel: 2 apartado, 3 subapartado), en orden de lectura del índice. */
 export function apartadosDeTexto(texto) {
   const porTema = new Map();
-  for (const crudo of String(texto || '').split(/\r?\n/)) {
+  for (const crudo of normalizaBloques(texto).texto.split(/\r?\n/)) {
     const l = crudo.replace(/^[#>*\s_-]+/, '').replace(/[*_]+$/, '').replace(/\s*\.{3,}\s*\d*\s*$/, '').replace(/\s{2,}\d{1,3}$/, '').trim();     // número de página tras un hueco ("orden 3" no es página)
     const m = /^(\d{1,2})\.(\d{1,2})(?:\.(\d{1,2}))?\s+([A-ZÁÉÍÓÚÑ][^\n]{2,100})$/.exec(l);
     if (!m || /[=∈]/.test(m[4])) continue;                          // fórmulas y cifras de ejemplos no son títulos
@@ -274,6 +319,8 @@ export function esquemaDeTexto(texto) {
 /** Del texto de un temario a los temas que contiene, ya ordenados.
     Devuelve { temas: string[], modo }; modo = 'palabra' | 'lista' | 'ninguno'. */
 export function temasDeTexto(texto) {
+  const bl = normalizaBloques(texto);
+  if (bl.bloques.length) return { temas: bl.bloques.map(n => `Bloque ${n}`), modo: 'bloques' };
   const lineas = lineasDe(texto);
 
   // ---- Capa 1: "Tema N", "Bloque N", "Unidad N"… -------------------------

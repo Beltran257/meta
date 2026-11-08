@@ -40,6 +40,12 @@ fotos), el Word se abre en el navegador. `app/js/core/temario.js` saca los temas
 (Tema N, Bloque N, listas numeradas con apartados A/B/C, índices con página,
 entradas partidas…), los ordena y los deja revisar antes de guardar. Solo si no
 encuentra estructura clara pregunta a la IA.
+Reconoce también el formato del centro, una línea por punto
+(`B1 2.6 OR. Y CARAC. DEL RÉGIMEN SEÑORIAL ... (REFERENTE 6)`): lo pasa a
+«Bloque 1» con puntos `1.1`, `1.2`… (título en minúsculas, abreviaturas
+expandidas, código y referente conservados entre paréntesis) y activa solo los
+subtemas de la asignatura, así que cada punto se puntúa por separado. Se puede
+pegar en la lista o subir como `.txt`.
 
 **Examen = centro.** La ficha de cada examen marca qué temas entran, deja cambiar
 tu porcentaje de cada tema (±10 %, son estimaciones tuyas), y enseña horas
