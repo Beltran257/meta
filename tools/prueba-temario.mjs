@@ -359,5 +359,15 @@ igual('tipo de archivo por extensión o MIME',
   igual('subir lo mismo otra vez no cambia nada', guardarSubtemas('mat2', items2, ['1.3']), { creados: 0, detalles: 0 });
 }
 
+{
+  // Un temario por bloques: el bloque agrupa y cada punto es un subtema con su dominio.
+  const txt = `Bloque 1. Antigüedad y Edad Media\n1.1 Primer punto (3.2 · Referente 1)\n1.2 Segundo punto (4 · Referente 2)\n\nBloque 2. Edad Moderna\n2.1 Tercer punto (Referente 7)\n`;
+  const { subtemasDeGrupos } = await import('../app/js/core/temas.js');
+  const items = subtemasDeGrupos(T.apartadosDeTexto(txt), T.temasDeTexto(txt).temas);
+  igual('bloques: cada punto cuelga de su bloque',
+    items.map(i => [i.codigo, i.padre]),
+    [['1.1', 'Bloque 1. Antigüedad y Edad Media'], ['1.2', 'Bloque 1. Antigüedad y Edad Media'], ['2.1', 'Bloque 2. Edad Moderna']]);
+}
+
 console.log(fallos ? `\n${fallos} fallo(s)` : '\ntodo bien');
 process.exit(fallos ? 1 : 0);
