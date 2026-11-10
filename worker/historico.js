@@ -1,6 +1,6 @@
 /* ===========================================================================
    HISTÓRICO PARA SALUD — por cada fecha pasada, cuatro señales SIEMPRE
-   separadas (nunca una nota de "carga escolar" compuesta): días al próximo
+   separadas (más la hora de la primera clase) (nunca una nota de "carga escolar" compuesta): días al próximo
    examen, tareas pendientes en las 48h siguientes, horas de clase ese día
    de la semana (según el horario semanal, no cambia entre semanas
    normales) y minutos de estudio registrados ese día. Función PURA sobre
@@ -43,6 +43,19 @@ export function historicoSalud(buzon, fechas) {
     }, 0);
   }
 
+  /* Hora (HH:MM) de la primera franja ocupada de cada día de la semana: con
+     ella Salud calcula a qué hora acostarse para la clase del día siguiente. */
+  const primeraPorDia = {};
+  for (const [dia, franjasOcupadas] of Object.entries(horario.dias || {})) {
+    const inicios = (horario.franjas || [])
+      .map((f, i) => (franjasOcupadas[i] ? minutosDeHora(f.ini) : null))
+      .filter(m => m != null);
+    if (inicios.length) {
+      const m = Math.min(...inicios);
+      primeraPorDia[dia] = `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+    }
+  }
+
   const resultado = {};
   for (const fecha of fechas) {
     const proximo = examenes.find(e => e.fecha >= fecha);
@@ -58,7 +71,7 @@ export function historicoSalud(buzon, fechas) {
 
     const minutos_estudio = sesiones.filter(s => s.fecha === fecha).reduce((a, s) => a + (s.minutos || 0), 0);
 
-    resultado[fecha] = { examen_dias, tareas_pendientes, horas_clase, minutos_estudio };
+    resultado[fecha] = { examen_dias, tareas_pendientes, horas_clase, minutos_estudio, primera_clase: primeraPorDia[diaSemana] || null };
   }
   return resultado;
 }
