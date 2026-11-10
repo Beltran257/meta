@@ -91,6 +91,9 @@ echo '✅ reducción de fotos correcta'
 # El enlace de carpeta pide a iCloud los archivos que solo están en la nube.
 node tools/prueba-enlace.mjs > /dev/null || { echo '❌ el enlace de carpeta falla'; exit 1; }
 echo '✅ enlace de carpeta correcto'
+# El histórico para Salud: la hora de la primera clase de cada día.
+node tools/prueba-historico.mjs > /dev/null || { echo '❌ el histórico para Salud falla'; exit 1; }
+echo '✅ histórico para Salud correcto'
 npx wrangler deploy 2>&1 | tail -3
 
 URL="https://meta.beltranfersan.workers.dev"
