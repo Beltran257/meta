@@ -24,7 +24,7 @@ modelo/esfuerzo recomendados. Si algo de «Estado» ya no es cierto, corrígelo.
   de aquí. Si cambia un contrato, revísalos.
 - Desplegar solo con `tools/publica.sh`.
 
-## Estado (actualizar al cerrar cada trabajo; a 5 nov 2026)
+## Estado (actualizar al cerrar cada trabajo; a 10 nov 2026)
 
-- Versión desplegada: 2.0.48. Se trabaja en `main`, al día con `origin`.
+- Versión desplegada: 2.0.49 (vigilancia del 8 nov en verde; temario por bloques con puntos como subtemas). Se trabaja en `main`, al día con `origin`.
 - Pendientes: ninguno registrado.
