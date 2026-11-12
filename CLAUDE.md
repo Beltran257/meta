@@ -26,6 +26,6 @@ modelo/esfuerzo recomendados. Si algo de «Estado» ya no es cierto, corrígelo.
 
 ## Estado (actualizar al cerrar cada trabajo; a 12 nov 2026)
 
-- Versión desplegada: 2.0.51 (vigilancia del 10 nov en verde; temario por bloques con puntos como subtemas desde la 2.0.49; histórico con la hora de la primera clase para Salud desde la 2.0.50). Se trabaja en `main`, al día con `origin`.
-- Estudio desde el calendario revisado el 12 nov con datos reales: el script envía cada hora y las sesiones guardadas coincidían con las calculadas. Los bloques que se pisan ahora reparten el tiempo común por igual (`repartirMinutos`, en `core/calendario.js`): con sus datos, 9 tareas hechas que sumaban 0 min pasan a contar y el total no cambia (88,3 h). Hecho en código y GitHub; **sin publicar** (falta `tools/publica.sh`, que pide orden explícita).
+- Versión desplegada: 2.0.52 (vigilancia del 12 nov en verde; temario por bloques con puntos como subtemas desde la 2.0.49; histórico con la hora de la primera clase para Salud desde la 2.0.50). Se trabaja en `main`, al día con `origin`.
+- Estudio desde el calendario revisado el 12 nov con datos reales: el script envía cada hora y las sesiones guardadas coincidían con las calculadas. Los bloques que se pisan ahora reparten el tiempo común por igual (`repartirMinutos`, en `core/calendario.js`): con sus datos, 9 tareas hechas que sumaban 0 min pasan a contar y el total no cambia (88,3 h). Publicado en la 2.0.52 (12 nov).
 - Pendientes: ninguno registrado.
