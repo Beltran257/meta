@@ -30,6 +30,10 @@ verificar la app. `app/js/core/calendario.js` decide asignatura, tema y minutos;
 
 - un bloque **hecho** que desaparece del calendario (se limpian las tareas
   completadas) **sigue contando**: ya se estudió (`fusionarBloques`);
+- si varios bloques hechos coinciden en la hora, el tiempo común se cuenta **una
+  vez en total y se reparte por igual** entre ellos (`repartirMinutos`): las
+  horas no se inflan y ninguno queda a 0 min (antes uno que caía entero dentro
+  de otro no contaba para su asignatura);
 - lo que no se puede deducir se pregunta ("¿Lo hiciste?", "¿De qué asignatura
   es?", "¿Qué tema era?") y se recuerda.
 

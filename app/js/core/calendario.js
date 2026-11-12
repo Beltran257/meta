@@ -13,8 +13,11 @@
    · Solo los bloques cuya tarea está MARCADA como hecha. Un bloque es un plan;
      la casilla es lo que dice que pasó. Los de la última semana sin marcar se
      preguntan ("¿lo hiciste?"); los más viejos se dan por no hechos.
-   · Los minutos son los del bloque. Si dos bloques hechos se solapan, el
-     tiempo común se cuenta una vez (el segundo suma solo lo que no pisa).
+   · Los minutos son los del bloque. Si dos o más bloques hechos se solapan, el
+     tiempo común se cuenta UNA vez en total y se reparte por igual entre
+     ellos (repartirMinutos): así todo lo que marcó como hecho cuenta para su
+     asignatura y su tema, y las horas no se inflan. Antes el primero se
+     quedaba con todo y uno que caía entero dentro de otro sumaba 0 min.
    · Lo que no se sabe de qué asignatura es se pregunta UNA vez y, si él
      quiere, se recuerda para ese título.
    · "Imprimir…", "Grapar…", "Subir…" son logística: no cuentan como estudio.
@@ -150,6 +153,31 @@ const diaDe = iso => {
 
 const DIAS_PREGUNTA = 7;
 
+/** Minutos de cada intervalo {ini, fin} (ms) cuando el tiempo que varios se
+    pisan se reparte POR IGUAL entre ellos. Es función del tiempo, no del orden:
+    dos tareas a la misma hora suman lo mismo que una sola, a medias. El total
+    es la unión de los intervalos. Enteros: el redondeo va acumulado por orden
+    de inicio, para que la suma no gane ni pierda minutos sueltos. */
+export function repartirMinutos(intervalos) {
+  const cortes = [...new Set(intervalos.flatMap(i => [i.ini, i.fin]))].sort((a, b) => a - b);
+  const ms = intervalos.map(() => 0);
+  for (let k = 0; k < cortes.length - 1; k++) {
+    const a = cortes[k], z = cortes[k + 1];
+    const activos = [];
+    intervalos.forEach((i, n) => { if (i.ini <= a && i.fin >= z) activos.push(n); });
+    for (const n of activos) ms[n] += (z - a) / activos.length;
+  }
+  const salida = intervalos.map(() => 0);
+  let acum = 0, previo = 0;
+  intervalos.map((i, n) => n).sort((x, y) => intervalos[x].ini - intervalos[y].ini || x - y).forEach(n => {
+    acum += ms[n] / 60000;
+    const r = Math.round(acum + 1e-9);
+    salida[n] = r - previo;
+    previo = r;
+  });
+  return salida;
+}
+
 /** Función pura: bloques + lo que él ha decidido -> sesiones y preguntas.
     `ajustes` = { reglas: {tituloNormalizado: asignaturaId | 'no'},
                   decisiones: {idBloque: {hecho?: bool, asignaturaId?: id | 'no'}} } */
@@ -200,15 +228,18 @@ export function sesionesDeBloques(bloques, asignaturas, ajustes = {}, ahora = Da
     else if (clase === 'dudoso' && hecho) resultado.dudosos.push(b);
   }
 
-  // El tiempo común de dos bloques hechos que se pisan se cuenta una vez.
+  // El tiempo que varios bloques hechos se pisan se cuenta una vez en total y se
+  // reparte por igual entre ellos (repartirMinutos).
   hechas.sort((x, y) => x.b.inicio.localeCompare(y.b.inicio));
-  let cubierto = 0;
-  for (const { b, asignaturaId, temaId } of hechas) {
+  const intervalos = hechas.map(({ b }) => {
+    const ini = Date.parse(b.inicio), real = minutosReales(decisiones[b.id]);
     // Si dijo cuánto estudió de verdad (decisión `minutos`), manda sobre lo planificado.
-    const ini = Date.parse(b.inicio), fin = minutosReales(decisiones[b.id]) ? ini + minutosReales(decisiones[b.id]) * 60000 : Date.parse(b.fin);
-    const minutos = Math.round((fin - Math.max(ini, cubierto)) / 60000);
-    cubierto = Math.max(cubierto, fin);
-    if (minutos < 1) continue;
+    return { ini, fin: real ? ini + real * 60000 : Date.parse(b.fin) };
+  });
+  const reparto = repartirMinutos(intervalos);
+  hechas.forEach(({ b, asignaturaId, temaId }, n) => {
+    const minutos = reparto[n];
+    if (minutos < 1) return;
     resultado.sesiones.push({
       id: 'cal-' + b.id,
       fecha: diaDe(b.inicio),
@@ -219,9 +250,9 @@ export function sesionesDeBloques(bloques, asignaturas, ajustes = {}, ahora = Da
       resultado: 'regular',
       notas: b.titulo,
       origen: 'calendario',
-      creado: ini,
+      creado: intervalos[n].ini,
     });
-  }
+  });
   return resultado;
 }
 

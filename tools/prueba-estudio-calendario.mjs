@@ -6,7 +6,8 @@
    · que cada título caiga en su asignatura ("historia del arte" no es
      Historia de España) y que lo dudoso se pregunte en vez de adivinarse;
    · que la logística (imprimir, grapar…) no sume como estudio;
-   · que dos bloques hechos que se pisan no cuenten el tiempo dos veces;
+   · que bloques hechos que se pisan no cuenten el tiempo dos veces, pero que
+     ninguno se quede a 0 min: el tiempo común se reparte por igual;
    · que lo que él corrige a mano (y las reglas por título) mande.
 
    Uso:  node tools/prueba-estudio-calendario.mjs
@@ -20,7 +21,7 @@ globalThis.localStorage = {
   clear: () => almacen.clear(),
 };
 
-const { asignaturaDeTitulo, esLogistica, tipoDeTitulo, sesionesDeBloques, inicioCurso, temaDeTitulo } =
+const { asignaturaDeTitulo, esLogistica, tipoDeTitulo, sesionesDeBloques, inicioCurso, temaDeTitulo, repartirMinutos } =
   await import('../app/js/core/calendario.js');
 const { bloquesDeEstudio, clasesParticulares, procesarEnvio, fusionarBloques } = await import('../worker/estudio.js');
 const { codigoScript, MANIFIESTO } = await import('../app/js/core/script-estudio.js');
@@ -130,8 +131,8 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
   ];
   let r = sesionesDeBloques(bloques, ASIG, {}, ahora);
   const min = Object.fromEntries(r.sesiones.map(s => [s.id, s.minutos]));
-  JSON.stringify(min) === JSON.stringify({ 'cal-a': 60, 'cal-b': 15, 'cal-h': 120 })
-    ? bien('cuentan solo las hechas, sin logística, y el solape suma una vez (60 + 15, no 60 + 60)')
+  JSON.stringify(min) === JSON.stringify({ 'cal-a': 38, 'cal-b': 37, 'cal-h': 120 })
+    ? bien('cuentan solo las hechas, sin logística, y el solape se reparte por igual (38 + 37 = 75, no 60 + 60)')
     : mal(`minutos: ${JSON.stringify(min)}`);
   r.pendientes.map(p => p.id).join() === 'd' ? bien('"¿lo hiciste?" solo para lo de la última semana')
     : mal(`pendientes: ${r.pendientes.map(p => p.id)}`);
@@ -146,7 +147,7 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
     reglas: { 'mandar ejercicios al profesor': 'mat' },
   }, ahora);
   const por = Object.fromEntries(r.sesiones.map(x => [x.id, `${x.asignaturaId}:${x.minutos}`]));
-  JSON.stringify(por) === JSON.stringify({ 'cal-a': 'his:60', 'cal-b': 'fil:15', 'cal-g': 'mat:60', 'cal-d': 'his:120' })
+  JSON.stringify(por) === JSON.stringify({ 'cal-a': 'his:38', 'cal-b': 'fil:37', 'cal-g': 'mat:60', 'cal-d': 'his:120' })
     && !r.pendientes.length && !r.dudosos.length
     ? bien('lo que él corrige manda: "sí lo hice", "no lo hice", "no es estudio", otra asignatura y reglas por título')
     : mal(`con decisiones: ${JSON.stringify(por)} · pendientes ${r.pendientes.length} · dudosos ${r.dudosos.length}`);
@@ -257,6 +258,34 @@ const nombre = id => ASIG.find(a => a.id === id)?.nombre ?? id;
   igual('"estudié 45 min" manda sobre lo planificado', r({ decisiones: { h1: { minutos: 45 } } }).map(s => s.minutos), [45]);
   igual('"no lo estudié" quita la sesión', r({ decisiones: { h1: { hecho: false } } }).length, 0);
   igual('devolverla la recupera con su tiempo corregido', r({ decisiones: { h1: { hecho: true, minutos: 30 } } }).map(s => s.minutos), [30]);
+}
+
+/* ------------------------ bloques que se pisan ----------------------------- */
+{
+  const M = m => Date.parse('2026-10-05T10:00:00Z') + m * 60000;
+  const rep = (...iv) => repartirMinutos(iv.map(([a, z]) => ({ ini: M(a), fin: M(z) })));
+  igual('sin solape cada uno cuenta lo suyo', rep([0, 60], [60, 90]), [60, 30]);
+  igual('uno entero dentro de otro: ya no suma 0, se reparte (60 + 60 de 60 min → 30 + 30)', rep([0, 60], [0, 60]), [30, 30]);
+  igual('uno corto dentro de uno largo: reparte solo lo común', rep([0, 180], [45, 120]), [180 - 75 + 38, 37]);
+  igual('tres a la vez: un tercio cada uno', rep([0, 60], [0, 60], [0, 60]), [20, 20, 20]);
+  igual('no depende del orden en que vengan', rep([45, 120], [0, 180]), [37, 180 - 75 + 38]);
+  const iv = [[0, 100], [30, 70], [60, 150], [140, 200], [300, 330]];
+  igual('el total es siempre el tiempo real (la unión), nunca más', rep(...iv).reduce((a, b) => a + b, 0), 200 + 30);
+
+  // De punta a punta: el caso real de un bloque hecho que quedaba a 0 min.
+  const B = (id, titulo, ini, fin, extra = {}) => ({ id, titulo, inicio: `2026-10-07T${ini}:00+02:00`, fin: `2026-10-07T${fin}:00+02:00`, estado: 'hecha', ...extra });
+  const bl = [
+    B('p', 'Particulares matemáticas', '16:30', '17:45', { fuente: 'particular' }),
+    B('i', 'Inglés biblia', '16:30', '17:30'),                       // entera dentro de la clase
+  ];
+  const r = sesionesDeBloques(bl, ASIG, {}, Date.parse('2026-10-18T12:00:00+02:00')).sesiones;
+  const por = Object.fromEntries(r.map(x => [x.asignaturaId, x.minutos]));
+  igual('la tarea que caía entera dentro de otra ahora cuenta para su asignatura, y el total no se infla (75 min)',
+    [por.ing > 0, por.mat > 0, r.reduce((a, x) => a + x.minutos, 0)], [true, true, 75]);
+  // Lo que dijo que estudió de verdad manda, y el resto se reparte sobre eso.
+  const r2 = sesionesDeBloques(bl, ASIG, { decisiones: { i: { minutos: 20 } } }, Date.parse('2026-10-18T12:00:00+02:00')).sesiones;
+  igual('"estudié 20 min" acota su intervalo y la clase se queda con el resto',
+    Object.fromEntries(r2.map(x => [x.asignaturaId, x.minutos])), { mat: 65, ing: 10 });
 }
 
 /* ------------------------------ inicio de curso --------------------------- */
