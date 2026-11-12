@@ -24,7 +24,8 @@ modelo/esfuerzo recomendados. Si algo de «Estado» ya no es cierto, corrígelo.
   de aquí. Si cambia un contrato, revísalos.
 - Desplegar solo con `tools/publica.sh`.
 
-## Estado (actualizar al cerrar cada trabajo; a 10 nov 2026)
+## Estado (actualizar al cerrar cada trabajo; a 12 nov 2026)
 
-- Versión desplegada: 2.0.49 (vigilancia del 8 nov en verde; temario por bloques con puntos como subtemas). Se trabaja en `main`, al día con `origin`.
+- Versión desplegada: 2.0.51 (vigilancia del 10 nov en verde; temario por bloques con puntos como subtemas desde la 2.0.49; histórico con la hora de la primera clase para Salud desde la 2.0.50). Se trabaja en `main`, al día con `origin`.
+- Estudio desde el calendario revisado el 12 nov con datos reales: el script envía cada hora, las 96 sesiones guardadas coinciden con las que calcula el código (88,3 h). Un detalle por decidir: un bloque hecho que queda entero dentro de otro suma 0 min (ver README, «Estudio desde el calendario»).
 - Pendientes: ninguno registrado.
