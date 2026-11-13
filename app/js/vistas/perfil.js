@@ -104,6 +104,10 @@ function render() {
           <span class="izq"><span class="t1">Nuevo código de recuperación</span>
             <span class="t2">El anterior dejará de valer</span></span>
         </button>
+        <a class="fila" href="https://centralita.beltranfersan.workers.dev/permisos" target="_blank" rel="noopener">
+          <span class="izq"><span class="t1">Permisos de Claude</span>
+            <span class="t2">Qué puede hacer el conector Centralita con esta cuenta</span></span>
+        </a>
         <button class="fila" data-accion="cerrar-sesion">
           <span class="izq"><span class="t1">Cerrar sesión</span>
             <span class="t2">En este aparato</span></span>
