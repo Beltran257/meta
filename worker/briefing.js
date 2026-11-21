@@ -6,6 +6,8 @@
    el mismo criterio que motor.js — nunca se inventa un cálculo nuevo aparte.
    =========================================================================== */
 
+import { examenesSinPuntuar } from './notas-examenes.js';
+
 const DIAS_LECTIVOS = [
   { id: 'lunes', dow: 1 }, { id: 'martes', dow: 2 }, { id: 'miercoles', dow: 3 },
   { id: 'jueves', dow: 4 }, { id: 'viernes', dow: 5 },
@@ -80,5 +82,9 @@ export function resumenBriefing(buzon, ahora = new Date()) {
       atrasada: t.fecha < hoy,
     }));
 
-  return { fecha: hoy, horarioHoy, proximoExamen, tareasProximas };
+  /* Exámenes de las últimas dos semanas sin nota puesta: el briefing puede
+     recordar que falta (aunque sea aproximada). Campo nuevo y aditivo. */
+  const sinPuntuar = examenesSinPuntuar(buzon, hoy);
+
+  return { fecha: hoy, horarioHoy, proximoExamen, tareasProximas, examenesSinPuntuar: sinPuntuar };
 }

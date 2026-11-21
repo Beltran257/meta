@@ -94,6 +94,9 @@ echo '✅ enlace de carpeta correcto'
 # El histórico para Salud: la hora de la primera clase de cada día.
 node tools/prueba-historico.mjs > /dev/null || { echo '❌ el histórico para Salud falla'; exit 1; }
 echo '✅ histórico para Salud correcto'
+# Las notas de los exámenes: la aproximada que cuenta y se cambia por la oficial, y lo que ven Salud y el briefing.
+node tools/prueba-notas-examenes.mjs > /dev/null || { echo '❌ las notas de los exámenes fallan'; exit 1; }
+echo '✅ notas de exámenes correctas'
 npx wrangler deploy 2>&1 | tail -3
 
 URL="https://meta.beltranfersan.workers.dev"

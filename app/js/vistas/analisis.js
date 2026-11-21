@@ -123,6 +123,23 @@ function progresoAsignaturas() {
 
 accion('analisis-notas', d => abrirNotas(d.id));
 
+/* Resultados de los exámenes: una tarjeta corta que lleva a Exámenes, que es
+   donde se ponen y se ven. Solo sale cuando hay al menos un examen con nota. */
+function tarjetaExamenes() {
+  const r = motor.resumenExamenes();
+  if (!r) return '';
+  const falta = motor.examenesSinPuntuar().length;
+  return `
+    <div class="tarjeta">
+      <h3>Tus exámenes</h3>
+      <div class="rejilla2">
+        <div class="metrica"><div class="v">${escapa(fnota(r.media))}</div><div class="e">Media de ${r.n} ${r.n === 1 ? 'examen' : 'exámenes'}</div></div>
+        <div class="metrica"><div class="v">${falta}</div><div class="e">sin puntuar</div></div>
+      </div>
+      <button class="boton chico fantasma" data-accion="ir" data-id="examenes">Ver resultados</button>
+    </div>`;
+}
+
 /* ----------------------------- carga que viene ------------------------------ */
 
 function cargaFutura() {
@@ -198,6 +215,7 @@ function render() {
       ${barrasHoras()}
       ${repartoAsignaturas()}
       ${progresoAsignaturas()}
+      ${tarjetaExamenes()}
       ${cargaFutura()}
     </div>
 

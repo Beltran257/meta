@@ -8,11 +8,11 @@
    =========================================================================== */
 
 import { leer, guardar } from '../core/store.js';
-import { hoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar } from '../core/ui.js';
+import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar } from '../core/ui.js';
 import { accion, emitir } from '../core/bus.js';
-import { escapa, hoyLocal, fechaCorta, nota as fnota, numeroDe, pct } from '../core/fmt.js';
+import { escapa, hoyLocal, fechaCorta, fechaLarga, diasHasta, nota as fnota, numeroDe, pct } from '../core/fmt.js';
 import { asignaturaDe } from '../core/asignaturas.js';
-import { mediaPonderada, mediaDelCurso } from '../core/motor.js';
+import { mediaPonderada, mediaDelCurso, evaluacionDeFecha, notaDeExamen, preparacion, listaTareas } from '../core/motor.js';
 import { dibujarEvolucion } from '../core/grafico.js';
 
 const EVALS = ['1', '2', '3'];
@@ -71,6 +71,7 @@ function pintar() {
   const falta = necesitas(entrada);
   const lista = entrada.evaluaciones[evalSel];
   const mediaEval = mediaLista(lista);
+  const aprox = EVALS.flatMap(e => entrada.evaluaciones[e]).filter(n => n.aprox).length;
 
   const puntos = EVALS.flatMap(e => entrada.evaluaciones[e])
     .filter(n => n.fecha)
@@ -84,7 +85,7 @@ function pintar() {
       <div class="rejilla2">
         <div class="metrica">
           <div class="v">${escapa(fnota(media))}</div>
-          <div class="e">Media general</div>
+          <div class="e">Media general${aprox ? ` · incluye ${aprox} aprox.` : ''}</div>
         </div>
         <div class="metrica">
           <div class="v">${entrada.objetivo == null ? '—' : escapa(fnota(entrada.objetivo))}</div>
@@ -122,9 +123,9 @@ function pintar() {
             <button class="fila" data-accion="nota-editar" data-id="${escapa(n.id)}">
               <span class="izq">
                 <span class="t1">${escapa(n.titulo)}</span>
-                <span class="t2">${escapa(fechaCorta(n.fecha))}${n.peso && n.peso !== 1 ? ` · peso ${n.peso}` : ''}</span>
+                <span class="t2">${escapa(fechaCorta(n.fecha))}${n.peso && n.peso !== 1 ? ` · peso ${n.peso}` : ''}${n.examenId ? ' · examen' : ''}${n.aprox ? ' · aproximada' : ''}</span>
               </span>
-              <span class="der"><span class="n1 ${n.valor >= 5 ? 'bien' : 'mal'}">${escapa(fnota(n.valor))}</span></span>
+              <span class="der"><span class="n1 ${n.valor >= 5 ? 'bien' : 'mal'}">${n.aprox ? '~' : ''}${escapa(fnota(n.valor))}</span></span>
             </button>`).join('')}
         </div>` : '<div class="vacio"><p>Sin notas en esta evaluación.</p></div>'}`,
     pie: `<button class="boton ancho" data-accion="nota-nueva">${icono('mas')} Añadir nota</button>`,
@@ -139,6 +140,97 @@ function pintar() {
 }
 
 accion('eval-sel', d => { evalSel = d.e; pintar(); });
+
+
+/* Una nota con su marca de aproximada. Al poner la oficial encima de una
+   aproximada, la aproximada se guarda en `aproxPrevia`: con ella se ve cuánto
+   se desvía al estimar (motor.resumenExamenes). */
+function conAprox(previa, campos, aprox) {
+  const { aprox: _a, aproxPrevia: _p, ...base } = { ...(previa || {}), ...campos };
+  const aproxPrevia = previa?.aprox && !aprox ? previa.valor : previa?.aproxPrevia;
+  return { ...base, ...(aprox ? { aprox: true } : {}), ...(aproxPrevia != null ? { aproxPrevia } : {}) };
+}
+
+/* ------------------------------ nota de un examen ---------------------------
+   Se abre desde Exámenes (y desde el aviso de Hoy). La nota se guarda en la
+   asignatura del examen, en su evaluación, con `examenId` (ver motor.js). */
+
+export function puntuarExamen(examenId) {
+  const e = listaTareas().find(x => x.id === examenId);
+  if (!e) return;
+  if (!asignaturaDe(e.asignaturaId)) return aviso('Ponle asignatura al examen para poder puntuarlo', 'mal');
+  const previa = notaDeExamen(e.id);
+  const n = previa?.nota;
+  const ev = previa?.evaluacion || evaluacionDeFecha(e.fecha);
+  hoja({
+    titulo: `Nota de ${e.titulo}`,
+    cuerpo: `
+      <p class="parrafo chico">${escapa(asignaturaDe(e.asignaturaId).nombre)} · ${escapa(fechaLarga(e.fecha))}.
+      Si aún no te la han dado, pon la que calculas: queda marcada como aproximada y la cambias por la oficial cuando llegue.</p>
+      <div class="campos-3">
+        <div class="campo">
+          <label for="ex-valor">Nota</label>
+          <input id="ex-valor" type="text" inputmode="decimal" value="${n ? fnota(n.valor) : ''}" placeholder="7,50">
+        </div>
+        <div class="campo">
+          <label for="ex-peso">Peso</label>
+          <input id="ex-peso" type="text" inputmode="decimal" value="${n?.peso ?? 1}">
+        </div>
+        <div class="campo">
+          <label for="ex-eval">Evaluación</label>
+          <select id="ex-eval">${EVALS.map(x => `<option value="${x}" ${x === ev ? 'selected' : ''}>${x}ª</option>`).join('')}</select>
+        </div>
+      </div>
+      <label class="check"><input id="ex-aprox" type="checkbox" ${!n || n.aprox ? 'checked' : ''}> Es aproximada (aún no es la oficial)</label>
+      <button class="boton sutil chico" data-accion="examen-editar" data-id="${escapa(e.id)}" data-mt>Editar o borrar el examen</button>`,
+    pie: `
+      ${n ? '<button class="boton sutil izquierda peligro" data-accion="examen-nota-quitar" data-id="' + escapa(e.id) + '">Quitar la nota</button>' : ''}
+      <button class="boton fantasma" data-accion="cerrar-hoja">Cancelar</button>
+      <button class="boton" data-accion="examen-nota-guardar" data-id="${escapa(e.id)}">Guardar</button>`,
+    alAbrir(v) { enfocar(v, '#ex-valor'); },
+  });
+}
+
+accion('examen-puntuar', d => puntuarExamen(d.id));
+
+accion('examen-nota-guardar', (d, el) => {
+  const e = listaTareas().find(x => x.id === d.id);
+  if (!e) return;
+  const v = el.closest('.hoja');
+  const valor = numeroDe('ex-valor');
+  const peso = numeroDe('ex-peso') ?? 1;
+  const evaluacion = v.querySelector('#ex-eval').value;
+  const aprox = v.querySelector('#ex-aprox').checked;
+  if (valor == null || valor < 0 || valor > 10) return aviso('La nota va de 0 a 10', 'mal');
+  if (!(peso > 0)) return aviso('El peso tiene que ser mayor que 0', 'mal');
+
+  const previa = notaDeExamen(e.id);
+  const entrada = entradaDe(e.asignaturaId);
+  const evaluaciones = { ...entrada.evaluaciones };
+  // Si ya tenía nota, se saca de donde estuviera (puede cambiar de evaluación).
+  for (const x of EVALS) evaluaciones[x] = evaluaciones[x].filter(n => n.examenId !== e.id);
+
+  /* Cómo iba preparado, solo si se puntúa cerca del examen: más tarde el dominio
+     de los temas ya habría cambiado y el dato mentiría. */
+  const prep = diasHasta(e.fecha) >= -3 ? preparacion(e) : null;
+  const campos = { titulo: e.titulo, valor, peso, fecha: e.fecha, examenId: e.id };
+  const nueva = conAprox(previa?.nota || { id: nuevoId() }, campos, aprox);
+  if (prep != null && previa?.nota?.prep == null) nueva.prep = prep;
+  evaluaciones[evaluacion] = [...evaluaciones[evaluacion], nueva];
+  guardarEntrada(e.asignaturaId, { ...entrada, evaluaciones });
+  cerrarHoja();
+  aviso(aprox ? 'Guardada como aproximada' : 'Guardada');
+});
+
+accion('examen-nota-quitar', async d => {
+  const e = listaTareas().find(x => x.id === d.id);
+  if (!e || !await confirmar('Se quita la nota de este examen.', 'Quitar')) return;
+  const entrada = entradaDe(e.asignaturaId);
+  const evaluaciones = {};
+  for (const x of EVALS) evaluaciones[x] = entrada.evaluaciones[x].filter(n => n.examenId !== e.id);
+  guardarEntrada(e.asignaturaId, { ...entrada, evaluaciones });
+  cerrarHoja();
+});
 
 /* -------------------------------- objetivo --------------------------------- */
 
@@ -194,7 +286,8 @@ function formNota(n) {
           <label for="n-fecha">Fecha</label>
           <input id="n-fecha" type="date" value="${escapa(n?.fecha || hoyLocal())}">
         </div>
-      </div>`,
+      </div>
+      <label class="check"><input id="n-aprox" type="checkbox" ${n?.aprox ? 'checked' : ''}> Es aproximada (aún no es la oficial)</label>`,
     pie: `
       ${n ? `<button class="boton sutil izquierda peligro" data-accion="nota-borrar" data-id="${escapa(n.id)}">Borrar</button>` : ''}
       <button class="boton fantasma" data-accion="cerrar-hoja">Cancelar</button>
@@ -217,6 +310,7 @@ accion('nota-guardar', (d, el) => {
   const valor = numeroDe('n-valor');
   const peso = numeroDe('n-peso') ?? 1;
   const fecha = v.querySelector('#n-fecha').value;
+  const aprox = v.querySelector('#n-aprox')?.checked === true;
   if (!titulo) return aviso('Ponle un nombre', 'mal');
   if (valor == null || valor < 0 || valor > 10) return aviso('La nota va de 0 a 10', 'mal');
   if (!fecha) return aviso('Ponle una fecha', 'mal');
@@ -224,9 +318,9 @@ accion('nota-guardar', (d, el) => {
   const entrada = entradaDe(asigActual);
   const evaluaciones = { ...entrada.evaluaciones };
   if (d.id) {
-    for (const e of EVALS) evaluaciones[e] = evaluaciones[e].map(n => (n.id === d.id ? { ...n, titulo, valor, peso, fecha } : n));
+    for (const e of EVALS) evaluaciones[e] = evaluaciones[e].map(n => (n.id === d.id ? conAprox(n, { titulo, valor, peso, fecha }, aprox) : n));
   } else {
-    evaluaciones[evalSel] = [...evaluaciones[evalSel], { id: nuevoId(), titulo, valor, peso, fecha }];
+    evaluaciones[evalSel] = [...evaluaciones[evalSel], conAprox(null, { id: nuevoId(), titulo, valor, peso, fecha }, aprox)];
   }
   guardarEntrada(asigActual, { ...entrada, evaluaciones });
   pintar();

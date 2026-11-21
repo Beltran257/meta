@@ -55,6 +55,16 @@ pegar en la lista o subir como `.txt`.
 tu porcentaje de cada tema (±10 %, son estimaciones tuyas), y enseña horas
 dedicadas y apuntes por tema.
 
+**Nota de cada examen.** Un examen pasado se puntúa desde Exámenes (o desde el aviso
+de Hoy «Te falta puntuar un examen»). Se puede poner una **nota aproximada** nada más
+salir; cuenta en la media de la asignatura marcada como «aprox.» y se cambia por la
+oficial cuando llega (la aproximada se guarda como `aproxPrevia`, y con ella Exámenes
+dice cuánto sueles desviarte al estimar). La nota vive en `notas` con `examenId`, en
+la evaluación que toca por fecha (`evaluacionDeFecha`): así entra sola en la media y
+en «qué nota necesito». Puntuar **no** marca el examen como hecho (Salud y el briefing
+lo siguen viendo en su fecha). Exámenes enseña la media de los puntuados y, con 4 o
+más, si estudiar más los 14 días antes se nota en la nota; siempre con sobre cuántos.
+
 **Qué hago hoy.** `motor.planDelDia`: todos los exámenes (45 días), cada tema
 pesa por lo cerca que está su examen y lo que tú dices que llevas; un examen sin
 temario genera "poner el temario"; da una vuelta por todas las asignaturas antes
@@ -81,6 +91,10 @@ puede reproducir ni discutir.
   asignatura (temario con tu estimación, apuntes, exámenes, notas) que NotebookLM
   lee como fuente. `tools/prueba-dossier.mjs` vigila sobre todo que **no se cuele
   contenido de una asignatura en el dossier de otra**.
+- **Salud y Morning Briefing** reciben la nota de los exámenes de forma aditiva:
+  `historico-salud` trae por fecha `examen_nota` y `examen_nota_aprox` (null si no hay),
+  y el resumen del briefing trae `examenesSinPuntuar` (últimas dos semanas). Quien no
+  los use no nota nada (`worker/notas-examenes.js`, `tools/prueba-notas-examenes.mjs`).
 - **Enlace de carpeta** (`tools/enlace-carpeta.mjs`): sincroniza una carpeta del
   Mac (asignatura/evaluación) con los apuntes de la cuenta.
 

@@ -8,6 +8,8 @@
    navegador.
    =========================================================================== */
 
+import { notasPorExamen } from './notas-examenes.js';
+
 const DIA_POR_DOW = { 1: 'lunes', 2: 'martes', 3: 'miercoles', 4: 'jueves', 5: 'viernes' };
 
 const sumaDias = (ymd, n) => {
@@ -29,6 +31,15 @@ export function historicoSalud(buzon, fechas) {
   const tareas = buzon?.claves?.tareas?.datos || [];
   const sesiones = buzon?.claves?.sesiones?.datos || [];
   const estaHecha = t => t.estado === 'hecha' || t.hecho === true;
+
+  /* Nota de los exámenes que ya la tienen, por fecha: Salud puede cruzar la
+     noche antes con lo que salió. Va aparte de `examenes` (que solo mira los no
+     hechos) porque un examen puntuado sigue sin marcarse como hecho. */
+  const notas = notasPorExamen(buzon);
+  const notaPorFecha = {};
+  for (const t of tareas) {
+    if (t.tipo === 'examen' && t.fecha && notas.has(t.id)) notaPorFecha[t.fecha] = notas.get(t.id);
+  }
 
   const examenes = tareas
     .filter(t => t.tipo === 'examen' && t.fecha && !estaHecha(t))
@@ -71,7 +82,11 @@ export function historicoSalud(buzon, fechas) {
 
     const minutos_estudio = sesiones.filter(s => s.fecha === fecha).reduce((a, s) => a + (s.minutos || 0), 0);
 
-    resultado[fecha] = { examen_dias, tareas_pendientes, horas_clase, minutos_estudio, primera_clase: primeraPorDia[diaSemana] || null };
+    resultado[fecha] = {
+      examen_dias, tareas_pendientes, horas_clase, minutos_estudio, primera_clase: primeraPorDia[diaSemana] || null,
+      examen_nota: notaPorFecha[fecha]?.valor ?? null,
+      examen_nota_aprox: notaPorFecha[fecha] ? notaPorFecha[fecha].aprox : null,
+    };
   }
   return resultado;
 }

@@ -9,16 +9,18 @@
 
 import { hoja, cerrarHoja, aviso, pintaEstilos, icono, barra } from '../core/ui.js';
 import { accion, on, emitir } from '../core/bus.js';
-import { escapa, fechaLarga, fechaCorta, diaSemana, diasHasta, duracion, hoyLocal, sumaDias } from '../core/fmt.js';
+import { escapa, fechaLarga, fechaCorta, diaSemana, diasHasta, duracion, hoyLocal, sumaDias, nota as fnota } from '../core/fmt.js';
 import { leer } from '../core/store.js';
 import { asignaturaDe, contenido } from '../core/asignaturas.js';
 import { temasDe, temaDe, crearTema, editarTema } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import * as sesion from '../core/sesion.js';
 import { formTarea, guardarTareas } from './tareas.js';
+import { puntuarExamen } from './notas.js';
 
 let raiz = null;
 let abrirAlEntrar = null;
+let puntuarAlEntrar = null;
 
 const claseDe = p => (p >= 75 ? 'bien' : p >= 45 ? 'ojo' : 'mal');
 
@@ -57,8 +59,39 @@ function tarjetaExamen(e) {
 
       <div class="acciones" data-mt-grande>
         <button class="boton chico" data-accion="examen-abrir" data-id="${escapa(e.id)}">Ver temario</button>
+        ${dias <= 0 ? `<button class="boton chico" data-accion="examen-puntuar" data-id="${escapa(e.id)}">Poner la nota</button>` : ''}
         <button class="boton chico fantasma" data-accion="examen-editar" data-id="${escapa(e.id)}">Editar</button>
       </div>
+    </div>`;
+}
+
+/* ------------------------------ cómo te han salido --------------------------
+   Resumen de los exámenes con nota. Cada cifra lleva sobre cuántos exámenes se
+   dice: con pocos datos es una pista, no una conclusión, y la pantalla lo dice. */
+
+const coma = v => v.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+
+function bloqueResultados() {
+  const r = motor.resumenExamenes();
+  if (!r) return '';
+  const lineas = [];
+  if (r.sesgo) {
+    const d = r.sesgo.media;
+    lineas.push(Math.abs(d) < 0.3
+      ? `Tu nota aproximada se parece mucho a la oficial (${r.sesgo.n} ${r.sesgo.n === 1 ? 'examen' : 'exámenes'}).`
+      : `Sueles calcular ${coma(Math.abs(d))} puntos ${d > 0 ? 'por debajo' : 'por encima'} de la oficial (${r.sesgo.n} ${r.sesgo.n === 1 ? 'examen' : 'exámenes'}).`);
+  }
+  if (r.horas) {
+    lineas.push(`Con más estudio los 14 días antes sacaste ${coma(r.horas.masHoras)} de media y con menos, ${coma(r.horas.menosHoras)} (${r.horas.n} exámenes).`);
+  }
+  return `
+    <div class="seccion" data-mt-grande>
+      <div class="seccion-cab"><h2>Cómo te han salido</h2></div>
+      <div class="rejilla2">
+        <div class="metrica"><div class="v">${escapa(fnota(r.media))}</div><div class="e">Media de ${r.n} ${r.n === 1 ? 'examen' : 'exámenes'}</div></div>
+        <div class="metrica"><div class="v">${r.aprox}</div><div class="e">${r.aprox === 1 ? 'aún aproximada' : 'aún aproximadas'}</div></div>
+      </div>
+      ${lineas.map(l => `<p class="parrafo chico">${escapa(l)}</p>`).join('')}
     </div>`;
 }
 
@@ -402,19 +435,24 @@ function render() {
         <button class="boton" data-accion="examen-nuevo">Añadir examen</button>
       </div>`}
 
+    ${bloqueResultados()}
+
     ${pasados.length ? `
       <div class="seccion" data-mt-grande>
         <div class="seccion-cab"><h2>Ya pasados</h2></div>
         <div class="lista">
           ${pasados.slice(0, 8).map(e => {
             const a = asignaturaDe(e.asignaturaId);
+            const r = motor.notaDeExamen(e.id)?.nota;
             return `
-              <button class="fila" data-accion="examen-editar" data-id="${escapa(e.id)}">
+              <button class="fila" data-accion="examen-puntuar" data-id="${escapa(e.id)}">
                 <span class="izq">
                   <span class="t1">${escapa(e.titulo)}</span>
-                  <span class="t2">${a ? escapa(a.nombre) : ''}</span>
+                  <span class="t2">${a ? escapa(a.nombre) + ' · ' : ''}${escapa(fechaLarga(e.fecha).split(' ').slice(1, 4).join(' '))}</span>
                 </span>
-                <span class="der"><span class="n1">${escapa(fechaLarga(e.fecha).split(' ').slice(1, 4).join(' '))}</span></span>
+                <span class="der">${r
+                  ? `<span class="n1 ${r.valor >= 5 ? 'bien' : 'mal'}">${r.aprox ? '~' : ''}${escapa(fnota(r.valor))}</span>`
+                  : '<span class="n2">Poner la nota</span>'}</span>
               </button>`;
           }).join('')}
         </div>
@@ -427,6 +465,11 @@ function render() {
     abrirAlEntrar = null;
     if (e) detalle(e);
   }
+  if (puntuarAlEntrar) {
+    const id = puntuarAlEntrar;
+    puntuarAlEntrar = null;
+    puntuarExamen(id);
+  }
 }
 
 export default {
@@ -436,7 +479,7 @@ export default {
     on('datos-cambio', render);
   },
   activar(extra) {
-    if (extra?.examenId) abrirAlEntrar = extra.examenId;
+    if (extra?.examenId) { if (extra.puntuar) puntuarAlEntrar = extra.examenId; else abrirAlEntrar = extra.examenId; }
     render();
   },
 };

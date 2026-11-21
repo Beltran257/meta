@@ -108,7 +108,7 @@ accion('riesgo-accion', d => {
   const r = motor.riesgos()[Number(d.i)];
   if (!r?.accion) return;
   if (r.accion.plan) return abrirPlan();
-  emitir('ir', { id: r.accion.ir, examenId: r.accion.examenId, filtro: r.accion.filtro });
+  emitir('ir', { id: r.accion.ir, examenId: r.accion.examenId, filtro: r.accion.filtro, puntuar: r.accion.puntuar });
 });
 
 /* -------------------------- ahora y lo siguiente --------------------------- */

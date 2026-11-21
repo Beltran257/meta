@@ -261,6 +261,103 @@ export function mediaDelCurso(evaluaciones) {
 }
 
 /* ===========================================================================
+   NOTAS DE EXÁMENES — la nota de un examen vive en `notas` (la de la
+   asignatura), no en el examen.
+
+   Un examen es una entrada de `tareas` y su nota es una entrada de
+   `notas[asignatura].evaluaciones[1|2|3]` con `examenId` apuntando a él. Así
+   entra sola en la media y en "qué nota necesito", y no hay dos números para
+   lo mismo. Dos campos propios:
+     · aprox: true  → la nota que él calcula al salir, antes de la oficial. Cuenta
+       en la media (una media realista desde el primer día) y se marca "aprox.".
+     · aproxPrevia  → al poner la oficial encima de una aproximada, la
+       aproximada se guarda aquí: con ella se ve cuánto se desvía al estimar.
+   NO se marca el examen como hecho al puntuarlo: Salud y el briefing leen los
+   exámenes "no hechos" para saber qué había cerca en cada fecha pasada, y
+   marcarlo borraría ese contexto del histórico.
+   =========================================================================== */
+
+/** Evaluación en la que cae una fecha, con el calendario escolar de Castilla y
+    León (orientativo: 1ª hasta el 22 dic, 2ª hasta el 22 mar, 3ª el resto). */
+export function evaluacionDeFecha(ymd) {
+  const md = (+String(ymd).slice(5, 7)) * 100 + (+String(ymd).slice(8, 10));
+  if (md >= 901 && md <= 1222) return '1';
+  if (md >= 1223 || md <= 322) return '2';
+  return '3';
+}
+
+/** La nota que tiene un examen: { asignaturaId, evaluacion, nota } o null. */
+export function notaDeExamen(examenId) {
+  const todas = leer('notas', {});
+  for (const [asignaturaId, entrada] of Object.entries(todas)) {
+    for (const ev of EVALUACIONES) {
+      const nota = (entrada?.evaluaciones?.[ev] || []).find(n => n.examenId === examenId);
+      if (nota) return { asignaturaId, evaluacion: ev, nota };
+    }
+  }
+  return null;
+}
+
+/** Exámenes ya pasados (de ayer hacia atrás, hasta 60 días) sin nota puesta. */
+export function examenesSinPuntuar() {
+  const hoy = hoyLocal();
+  const desde = sumaDias(hoy, -60);
+  return soloExamenes()
+    .filter(e => e.fecha < hoy && e.fecha >= desde && !notaDeExamen(e.id))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha));
+}
+
+/** Cuánto se ha estudiado una asignatura los 14 días ANTES de una fecha. */
+function minutosAntes(asignaturaId, fecha) {
+  const desde = sumaDias(fecha, -14);
+  return listaSesiones()
+    .filter(s => s.asignaturaId === asignaturaId && s.fecha >= desde && s.fecha < fecha)
+    .reduce((t, s) => t + (s.minutos || 0), 0);
+}
+
+/** Los exámenes con nota, del más reciente al más antiguo, con lo que se
+    estudió antes. Sale de los datos de ahora, sin copias que se queden viejas. */
+export function resultadosExamenes() {
+  return soloExamenes()
+    .map(e => ({ e, r: notaDeExamen(e.id) }))
+    .filter(x => x.r)
+    .map(({ e, r }) => ({
+      examen: e,
+      asignaturaId: r.asignaturaId,
+      valor: r.nota.valor,
+      aprox: !!r.nota.aprox,
+      aproxPrevia: r.nota.aproxPrevia ?? null,
+      prep: r.nota.prep ?? null,
+      minutos14: minutosAntes(r.asignaturaId, e.fecha),
+    }))
+    .sort((a, b) => b.examen.fecha.localeCompare(a.examen.fecha));
+}
+
+/** Resumen de los resultados: media, cuánto se desvía al estimar y, con cuatro
+    exámenes o más, si más horas antes se notan en la nota. Todo con `n` para que
+    se vea sobre cuántos se dice. Null si todavía no hay ninguno. */
+export function resumenExamenes() {
+  const res = resultadosExamenes();
+  if (!res.length) return null;
+  const media = res.reduce((s, x) => s + x.valor, 0) / res.length;
+
+  const pares = res.filter(x => x.aproxPrevia != null && !x.aprox);
+  const sesgo = pares.length
+    ? { n: pares.length, media: pares.reduce((s, x) => s + (x.valor - x.aproxPrevia), 0) / pares.length }
+    : null;
+
+  let horas = null;
+  const conHoras = res.filter(x => x.minutos14 > 0);
+  if (conHoras.length >= 4) {
+    const orden = conHoras.slice().sort((a, b) => b.minutos14 - a.minutos14);
+    const mitad = Math.floor(orden.length / 2);
+    const m = l => l.reduce((s, x) => s + x.valor, 0) / l.length;
+    horas = { n: orden.length, masHoras: m(orden.slice(0, mitad)), menosHoras: m(orden.slice(orden.length - mitad)) };
+  }
+  return { n: res.length, media, aprox: res.filter(x => x.aprox).length, sesgo, horas };
+}
+
+/* ===========================================================================
    ESTADO ACADÉMICO
    Empieza en 100 y cada problema real resta. Se enseñan los factores con su
    coste: si no se puede explicar por qué bajó, no vale para nada.
@@ -429,6 +526,20 @@ export function riesgos() {
       titulo: `${vencidos.length} repasos vencidos`,
       detalle: vencidos.slice(0, 3).map(t => t.nombre).join(' · '),
       accion: { texto: 'Repasar ahora', ir: 'estudiar' },
+    });
+  }
+
+  // Un examen hecho sin nota es un dato que se pierde: la media de la asignatura
+  // y lo que se aprende de cada examen dependen de ponerla (aunque sea aproximada).
+  const sinNota = examenesSinPuntuar();
+  if (sinNota.length) {
+    const e = sinNota[0];
+    const a = asignaturaDe(e.asignaturaId);
+    salida.push({
+      nivel: 'medio',
+      titulo: sinNota.length === 1 ? 'Te falta puntuar un examen' : `Te faltan por puntuar ${sinNota.length} exámenes`,
+      detalle: `${e.titulo}${a ? ' · ' + a.nombre : ''}. Vale una nota aproximada: luego pones la oficial.`,
+      accion: { texto: 'Poner la nota', ir: 'examenes', examenId: e.id, puntuar: true },
     });
   }
 
