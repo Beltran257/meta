@@ -88,3 +88,22 @@ export function resumenBriefing(buzon, ahora = new Date()) {
 
   return { fecha: hoy, horarioHoy, proximoExamen, tareasProximas, examenesSinPuntuar: sinPuntuar };
 }
+
+/** Todo lo pendiente, no solo lo que vence pronto: los exámenes que quedan y
+    las tareas sin hacer (con las atrasadas marcadas). Para el conector de
+    Claude. Función PURA sobre el buzón, con el mismo criterio que arriba. */
+const MAX_PENDIENTES = 100;
+export function agendaPendiente(buzon, ahora = new Date()) {
+  const { fecha: hoy } = hoyMadrid(ahora);
+  const asignaturas = buzon?.claves?.asignaturas?.datos || [];
+  const tareas = buzon?.claves?.tareas?.datos || [];
+  const nombreDe = id => asignaturas.find(a => a.id === id)?.nombre || null;
+  const estaHecha = t => t.estado === 'hecha' || t.hecho === true;
+  const pendientes = tareas.filter(t => t.fecha && !estaHecha(t)).sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  const examenes = pendientes.filter(t => t.tipo === 'examen' && t.fecha >= hoy).slice(0, MAX_PENDIENTES)
+    .map(t => ({ titulo: t.titulo, asignatura: nombreDe(t.asignaturaId), fecha: t.fecha, dias: diasHasta(hoy, t.fecha) }));
+  const sinHacer = pendientes.filter(t => t.tipo !== 'examen').slice(0, MAX_PENDIENTES)
+    .map(t => ({ titulo: t.titulo, asignatura: nombreDe(t.asignaturaId), fecha: t.fecha, atrasada: t.fecha < hoy }));
+  return { fecha: hoy, examenes, tareas: sinHacer };
+}

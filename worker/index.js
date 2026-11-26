@@ -26,6 +26,7 @@ import * as notebooklm from './notebooklm.js';
 import { extraerTexto } from './ocr.js';
 import { resumenBriefing } from './briefing.js';
 import { historicoSalud } from './historico.js';
+import { atiendeConector } from './conector.js';
 import { cookieVinculo, anotaVinculo } from './vinculo.js';
 import { enlaceDe, renovarEnlace, espacioDelFeed } from './feed.js';
 
@@ -721,6 +722,20 @@ export default {
 
     if (!['GET', 'HEAD', 'POST'].includes(request.method)) {
       return json({ error: 'metodo no permitido' }, 405);
+    }
+
+    /* La puerta del conector (Centralita, solo lectura). Va antes del límite
+       por IP: por service binding no hay IP y todo caería bajo 'sin-ip'. Ella
+       misma exige origen interno, testigo de conector y permiso (ver
+       worker/conector.js); sin cookies, sin sesión y sin X-Meta. */
+    if (url.pathname.startsWith('/api/conector/')) {
+      try {
+        const r = await atiendeConector(request, url, env);
+        return json(r.cuerpo, r.estado);
+      } catch (e) {
+        console.log('fallo conector', url.pathname, String(e?.message || e).slice(0, 200));
+        return json({ error: 'fallo interno' }, 500);
+      }
     }
 
     const ip = request.headers.get('CF-Connecting-IP') || 'sin-ip';

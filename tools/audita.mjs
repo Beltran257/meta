@@ -446,5 +446,41 @@ if (!/Promise\.all\(tanda\.map/.test(idx)) {
   bien('El volcado de la copia lee KV en tandas, no clave a clave');
 }
 
+/* --- la puerta del conector (26 nov 2026) -----------------------------------------
+   Un conector de solo lectura (el de Claude, vía Centralita) llama a
+   /api/conector/ por service binding. Toda ruta comprueba, en este orden,
+   origen interno, testigo de conector contra cuentas y permiso de la acción;
+   es solo lectura (nada de put/delete en KV), no crea espacios ni usuarios
+   (la entrada normal sí lo hace) y no llama a cuentas por nada que sea una
+   sesión. */
+{
+  const WORKER_M = join(RAIZ, 'worker');
+  const quitaComentarios = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const conector = quitaComentarios(readFileSync(join(WORKER_M, 'conector.js'), 'utf8'));
+  const rutas = [...conector.matchAll(/'(\/api\/conector\/[a-z-]+)':\s*\{\s*permiso:\s*'([a-z][a-z0-9-]*:[a-z][a-z0-9-]*)'/g)];
+  const claves = [...conector.matchAll(/'(\/api\/conector\/[a-z-]+)':/g)];
+  const cuerpo = conector.slice(conector.indexOf('export async function atiendeConector'));
+  const orden = ['esInterna(request)', 'await verifica(', '.permisos.includes(', 'ruta.lee(']
+    .map(x => cuerpo.indexOf(x));
+  const enOrden = orden.every((q, i) => q >= 0 && (i === 0 || q > orden[i - 1]));
+  const index = readFileSync(join(WORKER_M, 'index.js'), 'utf8');
+  const router = index.slice(index.indexOf('async fetch(request, env, ctx)'));
+  const pos = router.indexOf("startsWith('/api/conector/')");
+  // El router tiene dos límites: el del feed /ics/ (el primero) y el de /api/ (el último).
+  const antesDelLimite = pos >= 0 && pos < router.lastIndexOf('await dejaPasar(env, ip)');
+  const otros = readdirSync(WORKER_M).filter(f => f.endsWith('.js') && f !== 'conector.js' && f !== 'index.js')
+    .filter(f => readFileSync(join(WORKER_M, f), 'utf8').includes('/api/conector/'));
+  const llamaACuentas = [...conector.matchAll(/cuentas\.beltranfersan\.workers\.dev[^'"`]*/g)].map(m => m[0]);
+  const soloVerificar = llamaACuentas.length === 1 && llamaACuentas[0].endsWith('/api/identidad/conector/verificar');
+  const escribe = /\.(put|delete)\(/.test(conector) || /\b(espacioDeIdentidad|crearBuzon|fusionar|guardarUsuario|marcarDuenyo)\b/.test(conector);
+  if (!rutas.length || rutas.length !== claves.length) mal('worker/conector.js: hay una ruta /api/conector/ sin su `permiso` de la forma app:accion');
+  else if (!enOrden) mal('worker/conector.js: atiendeConector tiene que comprobar origen interno, testigo y permiso, en ese orden, antes de leer');
+  else if (otros.length) mal(`/api/conector/ aparece fuera de conector.js e index.js: ${otros.join(', ')}`);
+  else if (!antesDelLimite) mal('worker/index.js: la puerta del conector tiene que ir antes del límite por IP');
+  else if (!soloVerificar) mal(`worker/conector.js: a cuentas solo se le llama por conector/verificar (veo ${llamaACuentas.join(' | ') || 'ninguna'})`);
+  else if (escribe) mal('worker/conector.js: la puerta del conector es solo lectura y no crea espacios (usa put/delete, espacioDeIdentidad, crearBuzon, fusionar, guardarUsuario o marcarDuenyo)');
+  else bien(`La puerta del conector (${rutas.length} rutas) comprueba origen, testigo y permiso, y solo lee`);
+}
+
 console.log(`\n${fallos} fallos · ${avisos} avisos`);
 process.exit(fallos ? 1 : 0);

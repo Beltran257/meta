@@ -45,6 +45,9 @@ done
 # en que el calendario no sincroniza. Sin red, pasa siempre.
 node tools/prueba-ics.mjs > /dev/null || { echo '❌ el feed de calendario falla'; exit 1; }
 echo '✅ feed de calendario correcto'
+# La puerta del conector (lectura para Centralita): origen interno, testigo y permiso en cada ruta.
+node tools/prueba-conector.mjs > /dev/null || { echo '❌ falla la puerta del conector'; exit 1; }
+echo '✅ puerta del conector correcta'
 # Lo que acaba dentro del documento que NotebookLM lee como fuente. Lo que más
 # vigila: que no se cuele contenido de una asignatura en el dossier de otra —
 # eso daría respuestas mezcladas sin que se note desde ningún sitio.
