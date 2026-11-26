@@ -227,6 +227,10 @@ const examen = { titulo: 'Examen de ejemplo', fecha: '2026-12-03', tipo: 'examen
   comprueba((await tareasDe(env)).find(x => x.id === 't4').fecha === '2026-12-01', 'restaurar: deshacer un cambio vuelve al «antes»');
   comprueba(ag2.cuerpo.agenda.examenes.every(x => x.id) && ag2.cuerpo.agenda.tareas.every(x => x.id), 'meta:agenda da el id de cada tarea (lo necesita Claude para cambiarla)');
 
+  const quita = await escribe(env, 'restaurar', { quitar: t.id });
+  comprueba(quita.estado === 200 && quita.cuerpo.despues === null && !(await tareasDe(env)).some(x => x.id === t.id), 'restaurar con «quitar»: deshacer un apuntar quita la tarea de Claude');
+  const ajena = await escribe(env, 'restaurar', { quitar: 't1' });
+  comprueba(ajena.estado === 400 && (await tareasDe(env)).some(x => x.id === 't1'), 'restaurar con «quitar» no borra lo que apuntó Beltrán en la app');
   comprueba((await escribe(env, 'hecha', { id: 'no-existe' })).estado === 404 && (await escribe(env, 'borrar', {})).estado === 400, 'Un id que no existe: 404; sin id: 400');
   comprueba((await escribe(env, 'restaurar', { tarea: { id: 'nunca', titulo: 'x', fecha: '2026-12-01' } })).estado === 404, 'restaurar no inventa tareas que nunca existieron');
   comprueba((await escribe(env, 'apuntar', 'esto no es json')).estado === 400 && (await escribe(env, 'apuntar', { titulo: 'x'.repeat(20000), fecha: '2026-12-01' })).estado === 413, 'Cuerpo que no es JSON: 400; demasiado grande: 413');

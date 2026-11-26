@@ -84,6 +84,17 @@ export function aplicar(accion, args, estado, ahora = Date.now()) {
     return { tarea, antes: null, despues: tarea };
   }
 
+  if (accion === 'restaurar' && a.quitar !== undefined) {
+    // Deshacer un «apuntar»: quita la tarea, pero SOLO si la apuntó Claude.
+    // Lo que apuntó Beltrán en la app no se borra por aquí (eso es meta_borrar,
+    // con su propio permiso).
+    const id = String(a.quitar || '');
+    const t = RE_ID.test(id) ? viva(tareas, id) : null;
+    if (!t) return { error: 'no hay ninguna tarea con ese id (puede que ya se haya borrado)', estado: 404 };
+    if (t.origen !== 'claude') return { error: 'esa tarea no la apuntó Claude: deshacer no la quita', estado: 400 };
+    return { lapida: { [id]: Math.max(ahora, modDe(t) + 1) }, antes: t, despues: null };
+  }
+
   if (accion === 'restaurar') {
     // Deshacer: la tarea vuelve EXACTAMENTE a como estaba (la copia que
     // guardó Centralita), con una fecha nueva para que gane a la lápida y a
