@@ -109,6 +109,34 @@ puede reproducir ni discutir.
   los use no nota nada (`worker/notas-examenes.js`, `tools/prueba-notas-examenes.mjs`).
 - **Enlace de carpeta** (`tools/enlace-carpeta.mjs`): sincroniza una carpeta del
   Mac (asignatura/evaluación) con los apuntes de la cuenta.
+- **Conector de Claude** (Centralita, otro Worker): entra solo por
+  `/api/conector/` y por service binding (`worker/conector.js`). Cada ruta
+  comprueba origen interno, testigo de conector contra `cuentas` y el permiso de
+  esa acción. Lee `hoy`, `agenda` (con el id de cada tarea) y `dias`; desde la
+  2.0.57 también escribe, **solo en `tareas`** (`worker/escrituras.js`):
+  `apuntar`, `hecha`, `mover`, `borrar` y `restaurar` (deshacer; quitar por ahí
+  solo lo que apuntó el conector). Cada respuesta trae la tarea antes y después.
+
+## Tareas que no se pisan (desde la 2.0.57)
+
+Las demás secciones siguen con «gana la más nueva, entera». `tareas` se une
+**elemento a elemento** (`app/js/core/union.js`, el mismo archivo en el aparato
+y en el servidor):
+
+- cada tarea lleva `mod` (cuándo cambió); por id gana la más nueva;
+- lo borrado deja una lápida en la sección `borrados` (id → cuándo, 400 días);
+  una tarea está borrada si su lápida es tan nueva o más que su `mod`;
+- `guardar('tareas', …)` pone las fechas y las lápidas él solo, comparando la
+  lista de antes con la nueva: ninguna vista tiene que acordarse;
+- el aparato manda `formato: 2`; una app vieja en caché une sus tareas pero no
+  puede borrar ninguna (peor caso: algo borrado reaparece, nunca se pierde);
+- lo que escribe el conector va además a `conector:bandeja:<espacio>`, que el
+  servidor vuelve a unir en cada sincronización: KV no tiene «escribir solo si
+  nadie ha escrito» y en otra región puede servir una copia de hasta un minuto,
+  así que un aparato podría pisar el buzón; con la bandeja, lo pisado vuelve.
+
+`tools/prueba-union.mjs` lo prueba con dos aparatos de verdad (dos copias de
+`store.js`) y con un KV que sirve copias viejas.
 
 ## Arquitectura
 
@@ -154,7 +182,7 @@ repo. `.dev.vars` es solo para local y está en `.gitignore`.
 | Capa | Dónde | Cuándo |
 |---|---|---|
 | Análisis estático (sintaxis, **imports que existen**, precaché, CSP, acciones…) | `tools/audita.mjs` | antes de publicar, en cada push/PR, cada lunes |
-| Pruebas sin red | `tools/prueba-*.mjs` | antes de publicar, en cada push/PR, cada lunes |
+| Pruebas sin red (incluida la de «no pisa datos», `prueba-union`) | `tools/prueba-*.mjs` | antes de publicar, en cada push/PR, cada lunes |
 | Guardián de git | `.githooks/pre-push` (`npm run hooks`) | antes de cada `git push` |
 | **Producción, de fuera** | `.github/workflows/vigila.yml` → `tools/vigila.mjs` | **cada 6 h**, sola; abre/cierra una incidencia |
 | Verificación tras desplegar | segundo tramo de `tools/publica.sh` | al publicar |
