@@ -2,7 +2,8 @@
    ALMACÉN — envoltorio de localStorage sobre el registro de claves.
    Nadie llama a localStorage directamente: así el backup nunca se queda corto.
    =========================================================================== */
-import { CLAVES, LISTA_CLAVES, CLAVES_SINCRONIZABLES, CLAVES_OBSOLETAS, APP } from './registry.js';
+import { CLAVES, LISTA_CLAVES, CLAVES_SINCRONIZABLES, CLAVES_OBSOLETAS, CLAVES_UNIDAS, APP } from './registry.js';
+import { sellarTareas, unirTareas, unirLapidas, huella } from './union.js';
 
 const memoria = new Map(); // espejo en RAM: sobrevive a modo privado / cuota llena
 
@@ -28,6 +29,16 @@ export function leer(nombre, porDefecto) {
 export function guardar(nombre, valor) {
   const clave = CLAVES[nombre]?.k;
   if (!clave) throw new Error(`Clave no registrada: ${nombre}`);
+  /* Las tareas se unen elemento a elemento al sincronizar (core/union.js):
+     aquí, y solo aquí, se pone la fecha de cada tarea que cambia y la lápida
+     de cada una que desaparece. Todas las vistas guardan la lista entera por
+     este camino, así que ninguna puede olvidarse. */
+  let lapidas = null;
+  if (nombre === 'tareas') {
+    const sellado = sellarTareas(leer('tareas', []), valor);
+    valor = sellado.lista;
+    if (Object.keys(sellado.lapidas).length) lapidas = sellado.lapidas;
+  }
   memoria.set(clave, valor);
   let ok = true;
   try {
@@ -39,6 +50,7 @@ export function guardar(nombre, valor) {
   // Cada sección lleva su propia fecha de cambio: es lo que permite fusionar
   // dos dispositivos sin que uno pise el trabajo del otro.
   if (ok && CLAVES_SINCRONIZABLES.includes(nombre)) sellar(nombre);
+  if (ok && lapidas) guardar('borrados', unirLapidas([leer('borrados', {}), lapidas]));
   return ok;
 }
 
@@ -74,24 +86,51 @@ export function instantaneas() {
   for (const nombre of CLAVES_SINCRONIZABLES) {
     claves[nombre] = { ts: e.ts[nombre] || 0, datos: leer(nombre, null) };
   }
-  return { claves };
+  // formato 2 = este aparato pone fecha a cada tarea y deja lápidas al borrar:
+  // el servidor puede unir sus tareas sin miedo (ver worker/sync.js).
+  return { formato: 2, claves };
+}
+
+/** Escribe lo que llega del servidor SIN pasar por guardar(): no es un cambio
+    de este aparato, así que no lleva fecha nueva ni se vuelve a sellar. */
+function escribirRemoto(clave, datos) {
+  if (datos == null) memoria.delete(clave);
+  else memoria.set(clave, datos);
+  try {
+    if (datos == null) localStorage.removeItem(clave);
+    else localStorage.setItem(clave, JSON.stringify(datos));
+  } catch {}
+}
+
+/** `tareas` y `borrados` no se adoptan: se UNEN con lo de aquí, para no perder
+    un cambio hecho mientras la sincronización iba y venía. Devuelve las
+    secciones que cambiaron en este aparato. */
+function adoptarUnidas(buzon, e) {
+  const rt = buzon?.claves?.tareas, rb = buzon?.claves?.borrados;
+  if (!rt && !rb) return [];
+  const lt = leer('tareas', []), lb = leer('borrados', {});
+  const lapidas = unirLapidas([lb, rb?.datos]);
+  // A igualdad de fecha gana lo que va después: lo remoto si su sección es más nueva.
+  const remotoMasNuevo = (rt?.ts || 0) > (e.ts.tareas || 0);
+  const tareas = unirTareas(remotoMasNuevo ? [lt, rt?.datos] : [rt?.datos, lt], lapidas);
+  const cambiadas = [];
+  if (huella(tareas) !== huella(lt)) { escribirRemoto(CLAVES.tareas.k, tareas); cambiadas.push('tareas'); }
+  if (huella(lapidas) !== huella(lb)) { escribirRemoto(CLAVES.borrados.k, lapidas); cambiadas.push('borrados'); }
+  if (rt) e.ts.tareas = Math.max(e.ts.tareas || 0, rt.ts || 0);
+  if (rb) e.ts.borrados = Math.max(e.ts.borrados || 0, rb.ts || 0);
+  return cambiadas;
 }
 
 /** Adopta lo remoto SOLO donde sea más nuevo. Devuelve las secciones cambiadas. */
 export function adoptar(buzon) {
   const e = estadoSync();
-  const cambiadas = [];
+  const cambiadas = adoptarUnidas(buzon, e);
   for (const nombre of CLAVES_SINCRONIZABLES) {
+    if (CLAVES_UNIDAS.includes(nombre)) continue;
     const remoto = buzon?.claves?.[nombre];
     if (!remoto || typeof remoto.ts !== 'number') continue;
     if (remoto.ts <= (e.ts[nombre] || 0)) continue;
-    const clave = CLAVES[nombre].k;
-    if (remoto.datos == null) memoria.delete(clave);
-    else memoria.set(clave, remoto.datos);
-    try {
-      if (remoto.datos == null) localStorage.removeItem(clave);
-      else localStorage.setItem(clave, JSON.stringify(remoto.datos));
-    } catch {}
+    escribirRemoto(CLAVES[nombre].k, remoto.datos);
     e.ts[nombre] = remoto.ts;
     cambiadas.push(nombre);
   }

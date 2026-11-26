@@ -48,6 +48,10 @@ echo '✅ feed de calendario correcto'
 # La puerta del conector (lectura para Centralita): origen interno, testigo y permiso en cada ruta.
 node tools/prueba-conector.mjs > /dev/null || { echo '❌ falla la puerta del conector'; exit 1; }
 echo '✅ puerta del conector correcta'
+# Las tareas se unen por elemento (con lápidas): si falla, un aparato o Claude
+# pueden hacer desaparecer lo que apuntó el otro sin que se note.
+node tools/prueba-union.mjs > /dev/null || { echo '❌ la unión de tareas pisa datos'; exit 1; }
+echo '✅ unión de tareas correcta (no pisa datos)'
 # Lo que acaba dentro del documento que NotebookLM lee como fuente. Lo que más
 # vigila: que no se cuele contenido de una asignatura en el dossier de otra —
 # eso daría respuestas mezcladas sin que se note desde ningún sitio.

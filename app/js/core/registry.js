@@ -17,6 +17,7 @@ export const CLAVES = {
   horario:      { k: 'meta.horario.v1',      desc: 'Horario semanal: franjas y qué asignatura va en cada casilla' },
   temas:        { k: 'meta.temas.v2',        desc: 'Temas de cada asignatura, con dominio estimado y fechas de repaso' },
   tareas:       { k: 'meta.tareas.v1',       desc: 'Tareas Y exámenes con fecha (el tipo los distingue)' },
+  borrados:     { k: 'meta.borrados.v1',     desc: 'Qué tareas se borraron y cuándo, para que la sincronización no las resucite' },
   notas:        { k: 'meta.notas.v1',        desc: 'Calificaciones por asignatura y evaluación, con objetivo' },
   sesiones:     { k: 'meta.sesiones.v2',     desc: 'Sesiones de estudio registradas (asignatura, tema, minutos, resultado)' },
   notasRapidas: { k: 'meta.rapidas.v2',      desc: 'Notas rápidas: captura al vuelo, sin estructura' },
@@ -41,8 +42,13 @@ export const LISTA_CLAVES = Object.values(CLAVES).map(c => c.k);
    que usa el enlace de carpeta (tools/enlace-carpeta.mjs). */
 export const CLAVES_SINCRONIZABLES = [
   'perfil', 'asignaturas', 'horario', 'temas', 'tareas', 'notas',
-  'sesiones', 'notasRapidas', 'apuntesMeta', 'calendario',
+  'sesiones', 'notasRapidas', 'apuntesMeta', 'calendario', 'borrados',
 ];
+
+/* Secciones que se UNEN elemento a elemento en vez de pisarse enteras (ver
+   core/union.js): `tareas` por id y fecha de cada tarea, y `borrados`, sus
+   lápidas. Las demás siguen con «gana la más nueva, entera». */
+export const CLAVES_UNIDAS = ['tareas', 'borrados'];
 
 /* Por qué los exámenes están dentro de 'tareas' y no en su propia clave:
    el feed ICS y los conectores de Google Calendar, Outlook y Notion leen esa
