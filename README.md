@@ -65,6 +65,18 @@ en «qué nota necesito». Puntuar **no** marca el examen como hecho (Salud y el
 lo siguen viendo en su fecha). Exámenes enseña la media de los puntuados y, con 4 o
 más, si estudiar más los 14 días antes se nota en la nota; siempre con sobre cuántos.
 
+**Subida de nota.** Si repites un examen para subir nota, se apunta en la hoja de ese
+examen («Apuntar subida»: nota, fecha y si es aproximada). Cuenta la **mayor** de los
+intentos: la entrada de `notas` sigue siendo una sola y su `valor` es siempre la que
+cuenta, así que la media, «qué nota necesito», el gráfico, Salud y el briefing no
+cambian. Campos propios y aditivos: `valorInicial` (+ `aproxInicial`) y
+`subidas: [{ id, valor, fecha, aprox? }]`, con `conSubidas()` e `intentoInicial()` en
+`core/motor.js` como única forma de tocarlos. Una subida más baja se guarda y no
+cuenta; quitarla devuelve la nota a la mayor de las que queden. Las horas estudiadas
+y la desviación de la aproximada se miden contra el **primer intento**, y Salud
+recibe también el primer intento (`notasPorExamen`): la subida se prepara otro día.
+Exámenes y Análisis enseñan cuántos exámenes se repitieron y cuánto subieron de media.
+
 **Qué hago hoy.** `motor.planDelDia`: todos los exámenes (45 días), cada tema
 pesa por lo cerca que está su examen y lo que tú dices que llevas; un examen sin
 temario genera "poner el temario"; da una vuelta por todas las asignaturas antes

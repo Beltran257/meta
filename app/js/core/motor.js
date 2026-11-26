@@ -298,6 +298,42 @@ export function notaDeExamen(examenId) {
   return null;
 }
 
+/* ---- Subidas de nota: repetir un examen para mejorarlo ----------------------
+   La nota del examen sigue siendo UNA sola entrada. `valor` es siempre la que
+   cuenta (la mayor entre el primer intento y las subidas), así que la media, el
+   gráfico, Salud y el briefing no necesitan saber nada de las subidas. Campos
+   propios, solo presentes si hay alguna subida:
+     · valorInicial / aproxInicial → el primer intento (valor y si era aprox.)
+     · subidas: [{ id, valor, fecha, aprox? }] → los intentos posteriores.
+   Una subida más baja se guarda pero no cuenta. En empate gana la oficial. */
+
+/** La entrada tal como era tras el primer intento (sin subidas aplicadas). */
+export function intentoInicial(n) {
+  if (!n?.subidas?.length) return n;
+  const { subidas: _s, valorInicial, aproxInicial, aprox: _a, ...resto } = n;
+  return { ...resto, valor: valorInicial ?? n.valor, ...(aproxInicial ? { aprox: true } : {}) };
+}
+
+/** Pone las subidas sobre una entrada en forma de primer intento y recalcula
+    la nota que cuenta. Sin subidas devuelve la entrada limpia. */
+export function conSubidas(inicial, subidas) {
+  const { subidas: _s, valorInicial: _v, aproxInicial: _ai, ...base } = inicial;
+  if (!subidas?.length) return base;
+  let mejor = { valor: base.valor, aprox: !!base.aprox };
+  for (const s of subidas) {
+    if (s.valor > mejor.valor || (s.valor === mejor.valor && mejor.aprox && !s.aprox)) mejor = { valor: s.valor, aprox: !!s.aprox };
+  }
+  const { aprox: _a, ...sinAprox } = base;
+  return {
+    ...sinAprox,
+    valor: mejor.valor,
+    ...(mejor.aprox ? { aprox: true } : {}),
+    valorInicial: base.valor,
+    ...(base.aprox ? { aproxInicial: true } : {}),
+    subidas,
+  };
+}
+
 /** Exámenes ya pasados (de ayer hacia atrás, hasta 60 días) sin nota puesta. */
 export function examenesSinPuntuar() {
   const hoy = hoyLocal();
@@ -326,6 +362,11 @@ export function resultadosExamenes() {
       asignaturaId: r.asignaturaId,
       valor: r.nota.valor,
       aprox: !!r.nota.aprox,
+      /* El primer intento: las horas estudiadas y la aproximada se refieren a él,
+         no a la subida (que se prepara otro día). */
+      inicial: intentoInicial(r.nota).valor,
+      aproxInicial: !!intentoInicial(r.nota).aprox,
+      subidas: r.nota.subidas?.length || 0,
       aproxPrevia: r.nota.aproxPrevia ?? null,
       prep: r.nota.prep ?? null,
       minutos14: minutosAntes(r.asignaturaId, e.fecha),
@@ -341,9 +382,15 @@ export function resumenExamenes() {
   if (!res.length) return null;
   const media = res.reduce((s, x) => s + x.valor, 0) / res.length;
 
-  const pares = res.filter(x => x.aproxPrevia != null && !x.aprox);
+  const pares = res.filter(x => x.aproxPrevia != null && !x.aproxInicial);
   const sesgo = pares.length
-    ? { n: pares.length, media: pares.reduce((s, x) => s + (x.valor - x.aproxPrevia), 0) / pares.length }
+    ? { n: pares.length, media: pares.reduce((s, x) => s + (x.inicial - x.aproxPrevia), 0) / pares.length }
+    : null;
+
+  // Cuánto han subido los exámenes que se han repetido (0 si la subida no superó la nota).
+  const repetidos = res.filter(x => x.subidas > 0);
+  const subidas = repetidos.length
+    ? { n: repetidos.length, media: repetidos.reduce((s, x) => s + (x.valor - x.inicial), 0) / repetidos.length }
     : null;
 
   let horas = null;
@@ -351,10 +398,10 @@ export function resumenExamenes() {
   if (conHoras.length >= 4) {
     const orden = conHoras.slice().sort((a, b) => b.minutos14 - a.minutos14);
     const mitad = Math.floor(orden.length / 2);
-    const m = l => l.reduce((s, x) => s + x.valor, 0) / l.length;
+    const m = l => l.reduce((s, x) => s + x.inicial, 0) / l.length;
     horas = { n: orden.length, masHoras: m(orden.slice(0, mitad)), menosHoras: m(orden.slice(orden.length - mitad)) };
   }
-  return { n: res.length, media, aprox: res.filter(x => x.aprox).length, sesgo, horas };
+  return { n: res.length, media, aprox: res.filter(x => x.aprox).length, sesgo, subidas, horas };
 }
 
 /* ===========================================================================

@@ -16,7 +16,7 @@ import { temasDe, temaDe, crearTema, editarTema } from '../core/temas.js';
 import * as motor from '../core/motor.js';
 import * as sesion from '../core/sesion.js';
 import { formTarea, guardarTareas } from './tareas.js';
-import { puntuarExamen } from './notas.js';
+import { puntuarExamen, etiquetaSubida } from './notas.js';
 
 let raiz = null;
 let abrirAlEntrar = null;
@@ -80,6 +80,12 @@ function bloqueResultados() {
     lineas.push(Math.abs(d) < 0.3
       ? `Tu nota aproximada se parece mucho a la oficial (${r.sesgo.n} ${r.sesgo.n === 1 ? 'examen' : 'exámenes'}).`
       : `Sueles calcular ${coma(Math.abs(d))} puntos ${d > 0 ? 'por debajo' : 'por encima'} de la oficial (${r.sesgo.n} ${r.sesgo.n === 1 ? 'examen' : 'exámenes'}).`);
+  }
+  if (r.subidas) {
+    const d = r.subidas.media;
+    lineas.push(d > 0
+      ? `Repetiste ${r.subidas.n} ${r.subidas.n === 1 ? 'examen' : 'exámenes'} y subiste ${coma(d)} puntos de media.`
+      : `Repetiste ${r.subidas.n} ${r.subidas.n === 1 ? 'examen' : 'exámenes'} y no subiste la nota.`);
   }
   if (r.horas) {
     lineas.push(`Con más estudio los 14 días antes sacaste ${coma(r.horas.masHoras)} de media y con menos, ${coma(r.horas.menosHoras)} (${r.horas.n} exámenes).`);
@@ -448,7 +454,7 @@ function render() {
               <button class="fila" data-accion="examen-puntuar" data-id="${escapa(e.id)}">
                 <span class="izq">
                   <span class="t1">${escapa(e.titulo)}</span>
-                  <span class="t2">${a ? escapa(a.nombre) + ' · ' : ''}${escapa(fechaLarga(e.fecha).split(' ').slice(1, 4).join(' '))}</span>
+                  <span class="t2">${a ? escapa(a.nombre) + ' · ' : ''}${escapa(fechaLarga(e.fecha).split(' ').slice(1, 4).join(' '))}${escapa(etiquetaSubida(r))}</span>
                 </span>
                 <span class="der">${r
                   ? `<span class="n1 ${r.valor >= 5 ? 'bien' : 'mal'}">${r.aprox ? '~' : ''}${escapa(fnota(r.valor))}</span>`

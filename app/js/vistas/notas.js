@@ -12,7 +12,7 @@ import { hoja, cerrarHoja, aviso, confirmar, pintaEstilos, icono, barra, enfocar
 import { accion, emitir } from '../core/bus.js';
 import { escapa, hoyLocal, fechaCorta, fechaLarga, diasHasta, nota as fnota, numeroDe, pct } from '../core/fmt.js';
 import { asignaturaDe } from '../core/asignaturas.js';
-import { mediaPonderada, mediaDelCurso, evaluacionDeFecha, notaDeExamen, preparacion, listaTareas } from '../core/motor.js';
+import { mediaPonderada, mediaDelCurso, evaluacionDeFecha, notaDeExamen, preparacion, listaTareas, intentoInicial, conSubidas } from '../core/motor.js';
 import { dibujarEvolucion } from '../core/grafico.js';
 
 const EVALS = ['1', '2', '3'];
@@ -123,7 +123,7 @@ function pintar() {
             <button class="fila" data-accion="nota-editar" data-id="${escapa(n.id)}">
               <span class="izq">
                 <span class="t1">${escapa(n.titulo)}</span>
-                <span class="t2">${escapa(fechaCorta(n.fecha))}${n.peso && n.peso !== 1 ? ` · peso ${n.peso}` : ''}${n.examenId ? ' · examen' : ''}${n.aprox ? ' · aproximada' : ''}</span>
+                <span class="t2">${escapa(fechaCorta(n.fecha))}${n.peso && n.peso !== 1 ? ` · peso ${n.peso}` : ''}${n.examenId ? ' · examen' : ''}${escapa(etiquetaSubida(n))}${n.aprox ? ' · aproximada' : ''}</span>
               </span>
               <span class="der"><span class="n1 ${n.valor >= 5 ? 'bien' : 'mal'}">${n.aprox ? '~' : ''}${escapa(fnota(n.valor))}</span></span>
             </button>`).join('')}
@@ -141,6 +141,14 @@ function pintar() {
 
 accion('eval-sel', d => { evalSel = d.e; pintar(); });
 
+
+/** "· subida ↑ antes 6,00" si repetir el examen mejoró la nota; si se repitió y
+    no la superó, "· subida sin superar". Vacío si no hay subidas. */
+export function etiquetaSubida(n) {
+  if (!n?.subidas?.length) return '';
+  const antes = intentoInicial(n).valor;
+  return n.valor > antes ? ` · subida ↑ antes ${fnota(antes)}` : ' · subida sin superar';
+}
 
 /* Una nota con su marca de aproximada. Al poner la oficial encima de una
    aproximada, la aproximada se guarda en `aproxPrevia`: con ella se ve cuánto
@@ -160,7 +168,8 @@ export function puntuarExamen(examenId) {
   if (!e) return;
   if (!asignaturaDe(e.asignaturaId)) return aviso('Ponle asignatura al examen para poder puntuarlo', 'mal');
   const previa = notaDeExamen(e.id);
-  const n = previa?.nota;
+  const n = previa?.nota ? intentoInicial(previa.nota) : null;   // el primer intento: es lo que se edita aquí
+  const subidas = previa?.nota?.subidas || [];
   const ev = previa?.evaluacion || evaluacionDeFecha(e.fecha);
   hoja({
     titulo: `Nota de ${e.titulo}`,
@@ -182,6 +191,21 @@ export function puntuarExamen(examenId) {
         </div>
       </div>
       <label class="check"><input id="ex-aprox" type="checkbox" ${!n || n.aprox ? 'checked' : ''}> Es aproximada (aún no es la oficial)</label>
+      ${n ? `
+        <div class="seccion-cab" data-mt-grande><h2>Subida de nota</h2></div>
+        <p class="parrafo chico">Si repites el examen para subir nota, apúntalo: cuenta la mayor de las dos.${previa.nota.valor !== n.valor ? ` Ahora cuenta <b>${escapa(fnota(previa.nota.valor))}</b>.` : ''}</p>
+        ${subidas.length ? `
+          <div class="lista">
+            ${subidas.map(s => `
+              <button class="fila" data-accion="subida-editar" data-id="${escapa(e.id)}" data-sub="${escapa(s.id)}">
+                <span class="izq">
+                  <span class="t1">${escapa(fechaCorta(s.fecha))}${s.aprox ? ' · aproximada' : ''}</span>
+                  <span class="t2">${s.valor === previa.nota.valor && s.valor > n.valor ? 'Cuenta' : 'No cuenta'}</span>
+                </span>
+                <span class="der"><span class="n1 ${s.valor >= 5 ? 'bien' : 'mal'}">${s.aprox ? '~' : ''}${escapa(fnota(s.valor))}</span></span>
+              </button>`).join('')}
+          </div>` : ''}
+        <button class="boton fantasma chico" data-accion="subida-nueva" data-id="${escapa(e.id)}" data-mt>${icono('mas')} Apuntar subida</button>` : ''}
       <button class="boton sutil chico" data-accion="examen-editar" data-id="${escapa(e.id)}" data-mt>Editar o borrar el examen</button>`,
     pie: `
       ${n ? '<button class="boton sutil izquierda peligro" data-accion="examen-nota-quitar" data-id="' + escapa(e.id) + '">Quitar la nota</button>' : ''}
@@ -214,9 +238,10 @@ accion('examen-nota-guardar', (d, el) => {
      de los temas ya habría cambiado y el dato mentiría. */
   const prep = diasHasta(e.fecha) >= -3 ? preparacion(e) : null;
   const campos = { titulo: e.titulo, valor, peso, fecha: e.fecha, examenId: e.id };
-  const nueva = conAprox(previa?.nota || { id: nuevoId() }, campos, aprox);
-  if (prep != null && previa?.nota?.prep == null) nueva.prep = prep;
-  evaluaciones[evaluacion] = [...evaluaciones[evaluacion], nueva];
+  // Se edita el primer intento; las subidas que ya hubiera se vuelven a poner encima.
+  const base = conAprox(previa?.nota ? intentoInicial(previa.nota) : { id: nuevoId() }, campos, aprox);
+  if (prep != null && previa?.nota?.prep == null) base.prep = prep;
+  evaluaciones[evaluacion] = [...evaluaciones[evaluacion], conSubidas(base, previa?.nota?.subidas)];
   guardarEntrada(e.asignaturaId, { ...entrada, evaluaciones });
   cerrarHoja();
   aviso(aprox ? 'Guardada como aproximada' : 'Guardada');
@@ -224,12 +249,85 @@ accion('examen-nota-guardar', (d, el) => {
 
 accion('examen-nota-quitar', async d => {
   const e = listaTareas().find(x => x.id === d.id);
-  if (!e || !await confirmar('Se quita la nota de este examen.', 'Quitar')) return;
+  const subs = notaDeExamen(d.id)?.nota?.subidas?.length;
+  if (!e || !await confirmar(subs ? 'Se quita la nota de este examen y también sus subidas.' : 'Se quita la nota de este examen.', 'Quitar')) return;
   const entrada = entradaDe(e.asignaturaId);
   const evaluaciones = {};
   for (const x of EVALS) evaluaciones[x] = entrada.evaluaciones[x].filter(n => n.examenId !== e.id);
   guardarEntrada(e.asignaturaId, { ...entrada, evaluaciones });
   cerrarHoja();
+});
+
+/* ------------------------------ subida de nota -----------------------------
+   Repetir un examen para subir su nota (ver "Subidas de nota" en core/motor.js).
+   Se apunta desde la hoja del examen; la entrada sigue siendo una sola y su
+   `valor` pasa a ser la mayor de las dos. */
+
+/** Aplica un cambio a la lista de subidas de la nota de un examen y guarda. */
+function cambiaSubidas(examenId, cambio) {
+  const r = notaDeExamen(examenId);
+  if (!r) return false;
+  const entrada = entradaDe(r.asignaturaId);
+  const evaluaciones = { ...entrada.evaluaciones };
+  evaluaciones[r.evaluacion] = evaluaciones[r.evaluacion].map(n => (n.examenId === examenId ? conSubidas(intentoInicial(n), cambio(n.subidas || [])) : n));
+  guardarEntrada(r.asignaturaId, { ...entrada, evaluaciones });
+  return true;
+}
+
+function formSubida(examenId, sub) {
+  const e = listaTareas().find(x => x.id === examenId);
+  if (!e || !notaDeExamen(examenId)) return;
+  hoja({
+    titulo: sub ? 'Editar subida' : 'Subida de nota',
+    cuerpo: `
+      <p class="parrafo chico">${escapa(e.titulo)}: la nota del examen repetido. Cuenta la mayor de las dos.</p>
+      <div class="campos-3">
+        <div class="campo">
+          <label for="sub-valor">Nota</label>
+          <input id="sub-valor" type="text" inputmode="decimal" value="${sub ? fnota(sub.valor) : ''}" placeholder="7,50">
+        </div>
+        <div class="campo">
+          <label for="sub-fecha">Fecha</label>
+          <input id="sub-fecha" type="date" value="${escapa(sub?.fecha || hoyLocal())}">
+        </div>
+      </div>
+      <label class="check"><input id="sub-aprox" type="checkbox" ${sub?.aprox ? 'checked' : ''}> Es aproximada (aún no es la oficial)</label>`,
+    pie: `
+      ${sub ? `<button class="boton sutil izquierda peligro" data-accion="subida-quitar" data-id="${escapa(examenId)}" data-sub="${escapa(sub.id)}">Quitar</button>` : ''}
+      <button class="boton fantasma" data-accion="examen-puntuar" data-id="${escapa(examenId)}">Cancelar</button>
+      <button class="boton" data-accion="subida-guardar" data-id="${escapa(examenId)}" data-sub="${sub ? escapa(sub.id) : ''}">Guardar</button>`,
+    alAbrir(v) { enfocar(v, '#sub-valor'); },
+  });
+}
+
+accion('subida-nueva', d => formSubida(d.id, null));
+
+accion('subida-editar', d => {
+  const sub = (notaDeExamen(d.id)?.nota?.subidas || []).find(s => s.id === d.sub);
+  if (sub) formSubida(d.id, sub);
+});
+
+accion('subida-guardar', (d, el) => {
+  const e = listaTareas().find(x => x.id === d.id);
+  if (!e) return;
+  const v = el.closest('.hoja');
+  const valor = numeroDe('sub-valor');
+  const fecha = v.querySelector('#sub-fecha').value;
+  const aprox = v.querySelector('#sub-aprox').checked;
+  if (valor == null || valor < 0 || valor > 10) return aviso('La nota va de 0 a 10', 'mal');
+  if (!fecha) return aviso('Ponle una fecha', 'mal');
+  if (fecha < e.fecha) return aviso('La subida es después del examen', 'mal');
+
+  const hecha = { id: d.sub || nuevoId(), valor, fecha, ...(aprox ? { aprox: true } : {}) };
+  cambiaSubidas(d.id, lista => (d.sub ? lista.map(s => (s.id === d.sub ? hecha : s)) : [...lista, hecha]));
+  puntuarExamen(d.id);
+  aviso('Subida guardada');
+});
+
+accion('subida-quitar', async d => {
+  if (!await confirmar('Se quita esta subida. La nota vuelve a la mayor de las que queden.', 'Quitar')) return;
+  cambiaSubidas(d.id, lista => lista.filter(s => s.id !== d.sub));
+  puntuarExamen(d.id);
 });
 
 /* -------------------------------- objetivo --------------------------------- */
@@ -266,6 +364,7 @@ accion('objetivo-quitar', () => {
 /* ---------------------------------- notas ---------------------------------- */
 
 function formNota(n) {
+  n = intentoInicial(n);   // si se repitió el examen, aquí se edita el primer intento
   hoja({
     titulo: n ? 'Editar nota' : 'Nueva nota',
     cuerpo: `
@@ -301,7 +400,10 @@ accion('nota-nueva', () => formNota(null));
 accion('nota-editar', d => {
   const entrada = entradaDe(asigActual);
   const n = EVALS.flatMap(e => entrada.evaluaciones[e]).find(x => x.id === d.id);
-  if (n) formNota(n);
+  if (!n) return;
+  // La nota de un examen se edita donde están sus subidas; si el examen ya no existe, como una nota suelta.
+  if (n.examenId && listaTareas().some(x => x.id === n.examenId && asignaturaDe(x.asignaturaId))) return puntuarExamen(n.examenId);
+  formNota(n);
 });
 
 accion('nota-guardar', (d, el) => {
@@ -318,7 +420,7 @@ accion('nota-guardar', (d, el) => {
   const entrada = entradaDe(asigActual);
   const evaluaciones = { ...entrada.evaluaciones };
   if (d.id) {
-    for (const e of EVALS) evaluaciones[e] = evaluaciones[e].map(n => (n.id === d.id ? conAprox(n, { titulo, valor, peso, fecha }, aprox) : n));
+    for (const e of EVALS) evaluaciones[e] = evaluaciones[e].map(n => (n.id === d.id ? conSubidas(conAprox(intentoInicial(n), { titulo, valor, peso, fecha }, aprox), n.subidas) : n));
   } else {
     evaluaciones[evalSel] = [...evaluaciones[evalSel], conAprox(null, { id: nuevoId(), titulo, valor, peso, fecha }, aprox)];
   }

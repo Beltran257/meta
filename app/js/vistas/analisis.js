@@ -136,6 +136,7 @@ function tarjetaExamenes() {
         <div class="metrica"><div class="v">${escapa(fnota(r.media))}</div><div class="e">Media de ${r.n} ${r.n === 1 ? 'examen' : 'exámenes'}</div></div>
         <div class="metrica"><div class="v">${falta}</div><div class="e">sin puntuar</div></div>
       </div>
+      ${r.subidas ? `<p class="parrafo chico">${r.subidas.n} ${r.subidas.n === 1 ? 'examen repetido' : 'exámenes repetidos'}${r.subidas.media > 0 ? `: subiste ${r.subidas.media.toLocaleString('es-ES', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} de media` : ' sin subir la nota'}.</p>` : ''}
       <button class="boton chico fantasma" data-accion="ir" data-id="examenes">Ver resultados</button>
     </div>`;
 }

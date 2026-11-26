@@ -8,14 +8,22 @@
    cámbiese aquí (lo comprueba tools/prueba-notas-examenes.mjs).
    =========================================================================== */
 
-/** Map examenId -> { valor, aprox } con las notas que tienen examen. */
+/** Map examenId -> { valor, aprox } con las notas que tienen examen. Si el
+    examen se repitió para subir nota, es el PRIMER intento (valorInicial): Salud
+    lo cruza con el sueño de antes del examen, y la subida se prepara otro día.
+    Mismo criterio que intentoInicial() de core/motor.js. */
 export function notasPorExamen(buzon) {
   const mapa = new Map();
   const todas = buzon?.claves?.notas?.datos || {};
   for (const entrada of Object.values(todas)) {
     for (const lista of Object.values(entrada?.evaluaciones || {})) {
       for (const n of lista || []) {
-        if (n?.examenId && typeof n.valor === 'number') mapa.set(n.examenId, { valor: n.valor, aprox: !!n.aprox });
+        if (n?.examenId && typeof n.valor === 'number') {
+          const repetido = n.subidas?.length > 0;
+          mapa.set(n.examenId, repetido
+            ? { valor: n.valorInicial ?? n.valor, aprox: !!n.aproxInicial }
+            : { valor: n.valor, aprox: !!n.aprox });
+        }
       }
     }
   }
