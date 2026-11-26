@@ -232,6 +232,28 @@ async function apiAuth(request, url, env, ctx) {
    fecha más nueva), pero ahora el espacio lo decide la sesión, no la URL.
    =========================================================================== */
 
+/** Deja los conectores al día en segundo plano: no retrasa la respuesta, que
+    es lo que el aparato (o Centralita) está esperando para seguir. Lo usan la
+    sincronización de los aparatos y las escrituras del conector de Claude. */
+function ponerAlDia(env, ctx, codigo, fusionado) {
+  if (env.GOOGLE_CLIENT_ID) {
+    ctx.waitUntil(google.reconciliar(env, codigo, fusionado).catch(e => console.log('google-sync', String(e.message).slice(0, 150))));
+  }
+  if (env.MS_CLIENT_ID) {
+    ctx.waitUntil(microsoft.reconciliar(env, codigo, fusionado).catch(e => console.log('ms-sync', String(e.message).slice(0, 150))));
+  }
+  if (env.NOTION_TOKEN) {
+    ctx.waitUntil(notion.reconciliar(env, codigo, fusionado).catch(e => console.log('notion-sync', String(e.message).slice(0, 150))));
+  }
+  // Los dossieres que sigue NotebookLM. Sin forzar: solo reescribe las
+  // asignaturas cuyo contenido ha cambiado de verdad, y como mucho cada 10
+  // minutos (ver notebooklm.js). Es lo que hace que apuntar algo aquí
+  // aparezca solo en su cuaderno, sin darle a ningún botón.
+  if (env.GOOGLE_CLIENT_ID) {
+    ctx.waitUntil(notebooklm.sincronizar(env, codigo).catch(e => console.log('nblm-sync', String(e.message).slice(0, 150))));
+  }
+}
+
 async function apiDatos(request, env, ctx, usuario) {
   if (!env.META_DATOS) return json({ error: 'almacenamiento no disponible' }, 503);
   const codigo = usuario.espacio;
@@ -245,25 +267,7 @@ async function apiDatos(request, env, ctx, usuario) {
     const { datos, error } = await cuerpo(request);
     if (error) return error;
     const fusionado = await fusionar(env.META_DATOS, codigo, datos);
-
-    // Deja los conectores al día en segundo plano: no retrasa la respuesta,
-    // que es lo que el aparato está esperando para seguir.
-    if (env.GOOGLE_CLIENT_ID) {
-      ctx.waitUntil(google.reconciliar(env, codigo, fusionado).catch(e => console.log('google-sync', String(e.message).slice(0, 150))));
-    }
-    if (env.MS_CLIENT_ID) {
-      ctx.waitUntil(microsoft.reconciliar(env, codigo, fusionado).catch(e => console.log('ms-sync', String(e.message).slice(0, 150))));
-    }
-    if (env.NOTION_TOKEN) {
-      ctx.waitUntil(notion.reconciliar(env, codigo, fusionado).catch(e => console.log('notion-sync', String(e.message).slice(0, 150))));
-    }
-    // Los dossieres que sigue NotebookLM. Sin forzar: solo reescribe las
-    // asignaturas cuyo contenido ha cambiado de verdad, y como mucho cada 10
-    // minutos (ver notebooklm.js). Es lo que hace que apuntar algo aquí
-    // aparezca solo en su cuaderno, sin darle a ningún botón.
-    if (env.GOOGLE_CLIENT_ID) {
-      ctx.waitUntil(notebooklm.sincronizar(env, codigo).catch(e => console.log('nblm-sync', String(e.message).slice(0, 150))));
-    }
+    ponerAlDia(env, ctx, codigo, fusionado);
     return json(fusionado, 200);
   }
 
@@ -724,13 +728,16 @@ export default {
       return json({ error: 'metodo no permitido' }, 405);
     }
 
-    /* La puerta del conector (Centralita, solo lectura). Va antes del límite
+    /* La puerta del conector (Centralita: lecturas y escrituras en tareas). Va antes del límite
        por IP: por service binding no hay IP y todo caería bajo 'sin-ip'. Ella
        misma exige origen interno, testigo de conector y permiso (ver
        worker/conector.js); sin cookies, sin sesión y sin X-Meta. */
     if (url.pathname.startsWith('/api/conector/')) {
       try {
-        const r = await atiendeConector(request, url, env);
+        // Tras una escritura de Claude, los calendarios se ponen al día como
+        // cuando sincroniza un aparato (en segundo plano).
+        const alDia = (espacio, buzon) => ponerAlDia(env, ctx, espacio, buzon);
+        const r = await atiendeConector(request, url, env, Date.now(), alDia);
         return json(r.cuerpo, r.estado);
       } catch (e) {
         console.log('fallo conector', url.pathname, String(e?.message || e).slice(0, 200));

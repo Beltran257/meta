@@ -450,9 +450,12 @@ if (!/Promise\.all\(tanda\.map/.test(idx)) {
    Un conector de solo lectura (el de Claude, vía Centralita) llama a
    /api/conector/ por service binding. Toda ruta comprueba, en este orden,
    origen interno, testigo de conector contra cuentas y permiso de la acción;
-   es solo lectura (nada de put/delete en KV), no crea espacios ni usuarios
-   (la entrada normal sí lo hace) y no llama a cuentas por nada que sea una
-   sesión. */
+   conector.js no escribe en KV ni crea espacios ni usuarios (la entrada
+   normal sí lo hace) y no llama a cuentas por nada que sea una sesión.
+   Desde la fase 4 hay escrituras, pero solo por `escribir` (worker/
+   escrituras.js), después de las tres comprobaciones, y solo en `tareas`:
+   escrituras.js escribe la bandeja y une con `fusionar` en formato 2, nada
+   más (ni borra claves, ni crea buzones, ni toca otras secciones). */
 {
   const WORKER_M = join(RAIZ, 'worker');
   const quitaComentarios = s => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
@@ -460,9 +463,17 @@ if (!/Promise\.all\(tanda\.map/.test(idx)) {
   const rutas = [...conector.matchAll(/'(\/api\/conector\/[a-z-]+)':\s*\{\s*permiso:\s*'([a-z][a-z0-9-]*:[a-z][a-z0-9-]*)'/g)];
   const claves = [...conector.matchAll(/'(\/api\/conector\/[a-z-]+)':/g)];
   const cuerpo = conector.slice(conector.indexOf('export async function atiendeConector'));
-  const orden = ['esInterna(request)', 'await verifica(', '.permisos.includes(', 'ruta.lee(']
+  const orden = ['esInterna(request)', 'await verifica(', '.permisos.includes(', 'escribir(', 'ruta.lee(']
     .map(x => cuerpo.indexOf(x));
   const enOrden = orden.every((q, i) => q >= 0 && (i === 0 || q > orden[i - 1]));
+  // Cada ruta es de lectura (`lee`) o de escritura (`escribe: 'accion'`), nunca las dos.
+  const tipos = [...conector.matchAll(/'\/api\/conector\/[a-z-]+':\s*\{\s*permiso:\s*'[^']+',\s*(lee|escribe)\b/g)];
+  const escr = quitaComentarios(readFileSync(join(WORKER_M, 'escrituras.js'), 'utf8'));
+  const puts = [...escr.matchAll(/\.put\(([^,]*),/g)].map(m => m[1].trim());
+  const fusiones = [...escr.matchAll(/fusionar\(kv,\s*espacio,\s*\{\s*formato:\s*2,\s*claves:\s*\{([\s\S]*?)\}\s*,\s*\}/g)];
+  const secciones = fusiones.flatMap(m => [...m[1].matchAll(/\b(\w+):\s*\{\s*ts:/g)].map(x => x[1]));
+  const escrBien = puts.length === 1 && puts[0] === 'claveBandeja(espacio)' && !/\.delete\(|\b(espacioDeIdentidad|crearBuzon|guardarUsuario|marcarDuenyo)\b/.test(escr)
+    && (escr.match(/fusionar\(/g) || []).length === 1 && fusiones.length === 1 && secciones.length && secciones.every(x => ['tareas', 'borrados'].includes(x));
   const index = readFileSync(join(WORKER_M, 'index.js'), 'utf8');
   const router = index.slice(index.indexOf('async fetch(request, env, ctx)'));
   const pos = router.indexOf("startsWith('/api/conector/')");
@@ -474,12 +485,14 @@ if (!/Promise\.all\(tanda\.map/.test(idx)) {
   const soloVerificar = llamaACuentas.length === 1 && llamaACuentas[0].endsWith('/api/identidad/conector/verificar');
   const escribe = /\.(put|delete)\(/.test(conector) || /\b(espacioDeIdentidad|crearBuzon|fusionar|guardarUsuario|marcarDuenyo)\b/.test(conector);
   if (!rutas.length || rutas.length !== claves.length) mal('worker/conector.js: hay una ruta /api/conector/ sin su `permiso` de la forma app:accion');
-  else if (!enOrden) mal('worker/conector.js: atiendeConector tiene que comprobar origen interno, testigo y permiso, en ese orden, antes de leer');
+  else if (tipos.length !== rutas.length) mal('worker/conector.js: cada ruta /api/conector/ declara `lee` o `escribe` justo tras su permiso');
+  else if (!enOrden) mal('worker/conector.js: atiendeConector tiene que comprobar origen interno, testigo y permiso, en ese orden, antes de escribir o leer');
+  else if (!escrBien) mal(`worker/escrituras.js: solo escribe la bandeja (claveBandeja) y une tareas/borrados con fusionar en formato 2 (veo put: ${puts.join(' | ') || 'ninguno'}; secciones: ${secciones.join(', ') || 'ninguna'})`);
   else if (otros.length) mal(`/api/conector/ aparece fuera de conector.js e index.js: ${otros.join(', ')}`);
   else if (!antesDelLimite) mal('worker/index.js: la puerta del conector tiene que ir antes del límite por IP');
   else if (!soloVerificar) mal(`worker/conector.js: a cuentas solo se le llama por conector/verificar (veo ${llamaACuentas.join(' | ') || 'ninguna'})`);
-  else if (escribe) mal('worker/conector.js: la puerta del conector es solo lectura y no crea espacios (usa put/delete, espacioDeIdentidad, crearBuzon, fusionar, guardarUsuario o marcarDuenyo)');
-  else bien(`La puerta del conector (${rutas.length} rutas) comprueba origen, testigo y permiso, y solo lee`);
+  else if (escribe) mal('worker/conector.js: no escribe en KV ni crea espacios (usa put/delete, espacioDeIdentidad, crearBuzon, fusionar, guardarUsuario o marcarDuenyo): las escrituras van por escribir()');
+  else bien(`La puerta del conector (${rutas.length} rutas, ${tipos.filter(t => t[1] === 'escribe').length} de escritura) comprueba origen, testigo y permiso; solo escribe tareas, por escrituras.js`);
 }
 
 console.log(`\n${fallos} fallos · ${avisos} avisos`);

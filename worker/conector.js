@@ -1,8 +1,11 @@
 /* ===========================================================================
-   PUERTA DEL CONECTOR — por aquí lee Centralita (el conector de Claude).
+   PUERTA DEL CONECTOR — por aquí lee y escribe Centralita (el conector de
+   Claude).
 
-   Solo LECTURA y solo por service binding. Cada ruta de `/api/conector/`
-   comprueba tres cosas, siempre en este orden y siempre las tres:
+   Solo por service binding. Lecturas por GET; desde la fase 4 de Centralita,
+   escrituras por POST, solo en `tareas` (worker/escrituras.js). Cada ruta de
+   `/api/conector/` comprueba tres cosas, siempre en este orden y siempre las
+   tres, ANTES de leer o escribir nada:
 
      1. Que la llamada viene de otro Worker de la cuenta y no de internet
         (sin CF-Connecting-IP ni cf-ray: el borde de Cloudflare las pone en
@@ -14,17 +17,18 @@
         devuelve para esa llamada. Apagado en /permisos de Centralita = 403.
 
    Los datos son los del espacio de la cuenta del testigo, nunca el de un
-   código que venga en la URL. Y el espacio se busca SIN crearlo: la ruta de
-   entrada normal (`espacioDeIdentidad`) crea un buzón si no existe, y una
-   lectura no escribe nada.
+   código que venga en la URL o en el cuerpo. Y el espacio se busca SIN
+   crearlo: la ruta de entrada normal (`espacioDeIdentidad`) crea un buzón si
+   no existe; aquí, sin buzón no se lee ni se escribe. Este archivo no escribe
+   en KV: las escrituras pasan solo por `escribir` (worker/escrituras.js).
 
    A `cuentas` solo se le llama por `conector/verificar`. Nunca por token ni
    por verificar: eso son sesiones.
    =========================================================================== */
-import { leerBuzon } from './sync.js';
 import { leerUsuario, uidPorEmail, normalizaEmail } from './auth.js';
 import { resumenBriefing, agendaPendiente } from './briefing.js';
 import { historicoSalud } from './historico.js';
+import { escribir, leerUnido } from './escrituras.js';
 
 export const esInterna = request => !request.headers.get('CF-Connecting-IP') && !request.headers.get('cf-ray');
 
@@ -46,7 +50,8 @@ export async function espacioDe(env, { uid, email }) {
 const SIN_DATOS = { estado: 404, cuerpo: { error: 'esta cuenta todavia no tiene datos en meta' } };
 
 /** Las rutas y el permiso de cada una. `atiende` no ejecuta ninguna sin pasar
-    por las tres comprobaciones de arriba. */
+    por las tres comprobaciones de arriba. Las de `lee` son GET y no escriben;
+    las de `escribe` son POST y nombran la acción de worker/escrituras.js. */
 const RUTAS = {
   '/api/conector/hoy': {
     permiso: 'meta:hoy',
@@ -66,7 +71,21 @@ const RUTAS = {
       return { estado: 200, cuerpo: { dias: historicoSalud(buzon, fechas) } };
     },
   },
+  '/api/conector/apuntar': { permiso: 'meta:apuntar', escribe: 'apuntar' },
+  '/api/conector/hecha': { permiso: 'meta:marcar-hecha', escribe: 'hecha' },
+  '/api/conector/mover': { permiso: 'meta:mover-fecha', escribe: 'mover' },
+  '/api/conector/borrar': { permiso: 'meta:borrar', escribe: 'borrar' },
+  '/api/conector/restaurar': { permiso: 'meta:deshacer', escribe: 'restaurar' },
 };
+
+const MAX_CUERPO = 16 * 1024;
+
+/** El cuerpo de una escritura: JSON pequeño o nada. */
+async function cuerpoDe(request) {
+  const t = await request.text().catch(() => '');
+  if (t.length > MAX_CUERPO) return { error: { estado: 413, cuerpo: { error: 'cuerpo demasiado grande' } } };
+  try { const d = JSON.parse(t || '{}'); return d && typeof d === 'object' && !Array.isArray(d) ? { datos: d } : { error: { estado: 400, cuerpo: { error: 'el cuerpo tiene que ser un objeto JSON' } } }; } catch { return { error: { estado: 400, cuerpo: { error: 'el cuerpo no es JSON' } } }; }
+}
 
 const NO_RESPONDE = { estado: 503, cuerpo: { error: 'No se pudo contactar con el servicio de cuentas.' } };
 
@@ -85,20 +104,29 @@ async function verifica(env, testigo) {
   return { uid: d.usuario.uid, email: String(d.usuario.email || ''), permisos: d.permisos };
 }
 
-/** La puerta entera. Devuelve { estado, cuerpo }. */
-export async function atiendeConector(request, url, env, ahora = Date.now()) {
+/** La puerta entera. Devuelve { estado, cuerpo }. `alDia(espacio, buzon)`
+    pone al día los calendarios tras una escritura (lo da index.js). */
+export async function atiendeConector(request, url, env, ahora = Date.now(), alDia = null) {
   const ruta = RUTAS[url.pathname];
   if (!ruta) return { estado: 404, cuerpo: { error: 'ruta desconocida' } };
   // 1. Origen interno.
   if (!esInterna(request)) return { estado: 403, cuerpo: { error: 'no autorizado' } };
-  if (request.method !== 'GET') return { estado: 405, cuerpo: { error: 'metodo no permitido' } };
+  if (request.method !== (ruta.escribe ? 'POST' : 'GET')) return { estado: 405, cuerpo: { error: 'metodo no permitido' } };
   // 2. Testigo de conector, contra cuentas.
   const v = await verifica(env, request.headers.get('X-Conector') || '');
   if (v.respuesta) return v.respuesta;
   // 3. Permiso de esta acción.
   if (!v.permisos.includes(ruta.permiso)) return { estado: 403, cuerpo: { error: 'esta accion esta apagada', permiso: ruta.permiso } };
   const espacio = await espacioDe(env, v);
-  const buzon = espacio ? await leerBuzon(env.META_DATOS, espacio) : null;
+  if (!espacio) return SIN_DATOS;
+  if (ruta.escribe) {
+    const c = await cuerpoDe(request);
+    if (c.error) return c.error;
+    return escribir(env, espacio, ruta.escribe, c.datos, { ahora, alDia });
+  }
+  // Leído con la bandeja unida: Claude ve lo que acaba de escribir aunque un
+  // aparato lo haya pisado en el buzón un momento.
+  const buzon = await leerUnido(env.META_DATOS, espacio, ahora);
   if (!buzon) return SIN_DATOS;
   return ruta.lee(buzon, url, ahora);
 }

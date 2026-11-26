@@ -71,9 +71,10 @@ const entorno = (cuentas, extra = {}) => ({
   }),
 });
 const interna = (extra = {}) => ({ 'X-Conector': TESTIGO, ...extra });
-async function llama(env, ruta, { cabeceras = {}, metodo = 'GET' } = {}) {
+async function llama(env, ruta, { cabeceras = {}, metodo = 'GET', cuerpo, alDia = null } = {}) {
   const url = new URL('https://meta.beltranfersan.workers.dev' + ruta);
-  return await atiendeConector(new Request(url, { method: metodo, headers: cabeceras }), url, env, AHORA);
+  const body = cuerpo === undefined ? undefined : typeof cuerpo === 'string' ? cuerpo : JSON.stringify(cuerpo);
+  return await atiendeConector(new Request(url, { method: metodo, headers: cabeceras, body }), url, env, AHORA, alDia);
 }
 
 /* --- 1. origen ---------------------------------------------------------------------- */
@@ -167,7 +168,81 @@ async function llama(env, ruta, { cabeceras = {}, metodo = 'GET' } = {}) {
 {
   const env = entorno(cuentasFalso());
   comprueba((await llama(env, '/api/conector/hoy', { cabeceras: interna(), metodo: 'POST' })).estado === 405, 'POST: 405');
-  comprueba((await llama(env, '/api/conector/borrar', { cabeceras: interna() })).estado === 404, 'Una ruta que no existe: 404');
+  comprueba((await llama(env, '/api/conector/borrar-todo', { cabeceras: interna(), metodo: 'POST' })).estado === 404, 'Una ruta que no existe: 404');
+  comprueba((await llama(env, '/api/conector/borrar', { cabeceras: interna() })).estado === 405, 'Una escritura por GET: 405');
+}
+
+/* --- 8. escrituras (fase 4 de Centralita) -------------------------------------------------------- */
+const ESCRITURAS = ['meta:apuntar', 'meta:marcar-hecha', 'meta:mover-fecha', 'meta:borrar', 'meta:deshacer'];
+const todas = () => cuentasFalso({ permisos: ['meta:hoy', 'meta:agenda', 'meta:dias', ...ESCRITURAS] });
+const escribe = (env, accion, cuerpo, extra = {}) => llama(env, `/api/conector/${accion}`, { cabeceras: interna(), metodo: 'POST', cuerpo, ...extra });
+const tareasDe = async env => (await env.META_DATOS.get('sync:ABCD2345', 'json')).claves.tareas.datos;
+const examen = { titulo: 'Examen de ejemplo', fecha: '2026-12-03', tipo: 'examen', asignatura: 'asignatura uno' };
+{
+  // Las escrituras nacen apagadas: con solo las lecturas, todas dan 403 sin tocar nada.
+  const env = entorno(cuentasFalso());
+  let ninguna = true;
+  for (const a of ['apuntar', 'hecha', 'mover', 'borrar', 'restaurar']) ninguna = ninguna && (await escribe(env, a, { id: 't1' })).estado === 403;
+  comprueba(ninguna && env.META_DATOS.escrituras === 0 && !env.META_DATOS.lecturas.includes('sync:ABCD2345'), 'Escrituras apagadas: 403 en las cinco, sin leer ni escribir el buzón');
+  const fuera = await escribe(entorno(todas()), 'apuntar', examen, { cabeceras: interna({ 'CF-Connecting-IP': '203.0.113.9' }) });
+  comprueba(fuera.estado === 403, 'Una escritura desde internet: 403');
+  const otra = await escribe(entorno(cuentasFalso({ permisos: ['meta:apuntar'] })), 'borrar', { id: 't1' });
+  comprueba(otra.estado === 403, 'Cada escritura tiene su permiso: con solo meta:apuntar, borrar da 403');
+}
+{
+  const env = entorno(todas());
+  const avisos = [];
+  const r = await escribe(env, 'apuntar', examen, { alDia: (esp, b) => avisos.push([esp, b.claves.tareas.datos.length]) });
+  const t = r.cuerpo?.despues;
+  comprueba(r.estado === 200 && r.cuerpo.antes === null && t?.tipo === 'examen' && t.asignaturaId === 'a1' && t.origen === 'claude' && t.mod === AHORA, 'apuntar: examen nuevo, con su asignatura buscada por nombre (sin tildes ni mayúsculas) y su fecha');
+  comprueba(env.META_DATOS.escrituras === 2 && (await env.META_DATOS.get('conector:bandeja:ABCD2345', 'json')).tareas[0].id === t.id, 'apuntar: dos escrituras de KV, la bandeja y el buzón');
+  comprueba((await tareasDe(env)).length === 5 && (await tareasDe(env)).some(x => x.id === 't1'), 'apuntar: el buzón conserva las tareas que había');
+  comprueba(avisos.length === 1 && avisos[0][0] === 'ABCD2345', 'apuntar: los calendarios se ponen al día con el espacio de la cuenta');
+  const repe = await escribe(env, 'apuntar', examen);
+  comprueba(repe.estado === 200 && repe.cuerpo.nota && env.META_DATOS.escrituras === 2, 'Lo mismo dos veces no se apunta dos veces (ni escribe)');
+
+  const malas = [
+    [{ ...examen, asignatura: 'Asignatura' }, /varias/], [{ ...examen, asignatura: 'Química' }, /Asignatura Uno, Asignatura Dos/],
+    [{ ...examen, fecha: '2026-02-30' }, /fecha/], [{ ...examen, titulo: '   ' }, /título/],
+  ];
+  let bienRechazadas = true;
+  for (const [c, re] of malas) { const x = await escribe(env, 'apuntar', c); bienRechazadas = bienRechazadas && x.estado === 400 && re.test(x.cuerpo.error); }
+  comprueba(bienRechazadas && env.META_DATOS.escrituras === 2, 'apuntar: asignatura ambigua o inexistente, fecha imposible o sin título: 400 explicado y sin escribir');
+  const largo = await escribe(env, 'apuntar', { titulo: 'x'.repeat(300), fecha: '2026-12-04' });
+  const control = await escribe(env, 'apuntar', { titulo: '\u0007Leer\n\ncapítulo\u001b 3', fecha: '2026-12-04' });
+  comprueba(largo.cuerpo.despues.titulo.length === 120 && control.cuerpo.despues.titulo === 'Leer capítulo 3' && largo.cuerpo.despues.tipo === 'tarea' && largo.cuerpo.despues.asignaturaId === '', 'apuntar: título recortado a 120 y sin caracteres de control; sin tipo es tarea; sin asignatura, ninguna');
+
+  const h = await escribe(env, 'hecha', { id: 't1' });
+  comprueba(h.estado === 200 && h.cuerpo.antes.estado === 'pendiente' && h.cuerpo.despues.estado === 'hecha' && h.cuerpo.despues.hecho === true, 'hecha: devuelve antes y después');
+  const m = await escribe(env, 'mover', { id: 't4', fecha: '2026-12-05' });
+  comprueba(m.cuerpo.antes.fecha === '2026-12-01' && (await tareasDe(env)).find(x => x.id === 't4').fecha === '2026-12-05', 'mover: la fecha cambia en el buzón');
+  const b = await escribe(env, 'borrar', { id: 't3' });
+  const ag = await llama(env, '/api/conector/agenda', { cabeceras: interna() });
+  comprueba(b.cuerpo.despues === null && !(await tareasDe(env)).some(x => x.id === 't3') && !ag.cuerpo.agenda.tareas.some(x => x.id === 't3'), 'borrar: desaparece del buzón y de la agenda');
+  comprueba((await env.META_DATOS.get('sync:ABCD2345', 'json')).claves.borrados.datos.t3 > 0, 'borrar: deja lápida (si no, un aparato la resucitaría)');
+  const d = await escribe(env, 'restaurar', { tarea: b.cuerpo.antes });
+  const ag2 = await llama(env, '/api/conector/agenda', { cabeceras: interna() });
+  comprueba(d.estado === 200 && ag2.cuerpo.agenda.tareas.some(x => x.id === 't3' && x.titulo === 'Tarea atrasada'), 'restaurar: deshacer un borrado la devuelve tal cual');
+  const d2 = await escribe(env, 'restaurar', { tarea: m.cuerpo.antes });
+  comprueba((await tareasDe(env)).find(x => x.id === 't4').fecha === '2026-12-01', 'restaurar: deshacer un cambio vuelve al «antes»');
+  comprueba(ag2.cuerpo.agenda.examenes.every(x => x.id) && ag2.cuerpo.agenda.tareas.every(x => x.id), 'meta:agenda da el id de cada tarea (lo necesita Claude para cambiarla)');
+
+  comprueba((await escribe(env, 'hecha', { id: 'no-existe' })).estado === 404 && (await escribe(env, 'borrar', {})).estado === 400, 'Un id que no existe: 404; sin id: 400');
+  comprueba((await escribe(env, 'restaurar', { tarea: { id: 'nunca', titulo: 'x', fecha: '2026-12-01' } })).estado === 404, 'restaurar no inventa tareas que nunca existieron');
+  comprueba((await escribe(env, 'apuntar', 'esto no es json')).estado === 400 && (await escribe(env, 'apuntar', { titulo: 'x'.repeat(20000), fecha: '2026-12-01' })).estado === 413, 'Cuerpo que no es JSON: 400; demasiado grande: 413');
+}
+{
+  // Lo que apuntó Claude está en la bandeja aunque un aparato lo haya pisado en el buzón: Claude lo sigue viendo.
+  const pisada = { id: 'c9', tipo: 'tarea', titulo: 'Apuntada por Claude', fecha: '2026-11-30', estado: 'pendiente', mod: AHORA };
+  const env = entorno(todas(), { 'conector:bandeja:ABCD2345': { tareas: [pisada], borrados: { t4: AHORA } } });
+  const ag = (await llama(env, '/api/conector/agenda', { cabeceras: interna() })).cuerpo.agenda;
+  comprueba(ag.tareas.some(x => x.id === 'c9') && !ag.tareas.some(x => x.id === 't4'), 'Las lecturas unen la bandeja: lo último de Claude se ve aunque el buzón se haya pisado');
+}
+{
+  // Un uid o un espacio en el cuerpo no cambian dónde se escribe.
+  const env = entorno(cuentasFalso({ uid: 'u-nuevo', email: 'nueva@ejemplo.com', permisos: ESCRITURAS }), { 'usuario:u-ajeno': { id: 'u-ajeno', espacio: 'ZZZZ9999' }, 'sync:ZZZZ9999': BUZON });
+  const r = await escribe(env, 'apuntar', { ...examen, uid: 'u-ajeno', espacio: 'ZZZZ9999' });
+  comprueba(r.estado === 404 && env.META_DATOS.escrituras === 0, 'Un uid o un espacio en el cuerpo no cambian de quién son los datos (cuenta sin meta: 404, sin escribir)');
 }
 
 console.log(`\n${fallos} fallos`);

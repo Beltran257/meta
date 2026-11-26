@@ -18,6 +18,7 @@
    =========================================================================== */
 import { unirTareas, unirLapidas, sellarTareas, sellarAntiguas, huella, VIDA_LAPIDA } from '../app/js/core/union.js';
 import { fusionar, claveBandeja } from '../worker/sync.js';
+import { escribir } from '../worker/escrituras.js';
 
 let fallos = 0;
 const mal = m => { console.log('❌ ' + m); fallos++; };
@@ -170,15 +171,15 @@ function kvDosSitios() {
   await sincroniza(movil);
   madrid.congela(['sync:ESP', claveBandeja('ESP')]);   // Madrid se queda con esta copia
 
-  // Claude apunta un examen: bandeja + buzón, como hace la puerta del conector.
-  const examen = { id: 'c1', titulo: 'Examen de ejemplo', tipo: 'examen', fecha: '2026-12-03', mod: Date.now() };
-  await real.put(claveBandeja('ESP'), JSON.stringify({ tareas: [examen], borrados: {} }));
-  await fusionar(real, 'ESP', { formato: 2, claves: { tareas: { ts: examen.mod, datos: [examen] } } });
+  // Claude apunta un examen por la escritura real de la puerta (desde EE. UU., KV al día).
+  const r = await escribir({ META_DATOS: real }, 'ESP', 'apuntar', { titulo: 'Examen de ejemplo', tipo: 'examen', fecha: '2026-12-03' });
+  const c1 = r.cuerpo?.despues?.id;
+  r.estado === 200 && c1 ? bien('Claude apunta el examen por la puerta') : mal(`escribir: ${JSON.stringify(r)}`);
 
   // El móvil cambia algo y sincroniza leyendo la copia VIEJA de Madrid: pisa el buzón.
   movil.guardar('tareas', movil.leer('tareas', []).map(t => ({ ...t, fecha: '2026-12-02' })));
   await sincroniza(movil);
-  const pisado = !ids((await real.get('sync:ESP', 'json')).claves.tareas.datos).includes('c1');
+  const pisado = !ids((await real.get('sync:ESP', 'json')).claves.tareas.datos).includes(c1);
   pisado ? bien('(escenario real: el aparato con la copia vieja pisa el buzón)') : mal('el escenario no reproduce el pisotón: la prueba no prueba nada');
 
   madrid.caduca();    // pasa el minuto: Madrid ya ve lo de verdad
@@ -186,7 +187,7 @@ function kvDosSitios() {
   const buzon = await real.get('sync:ESP', 'json');
   igual('al siguiente sincronizar, el examen de Claude vuelve al buzón y llega al móvil, con el cambio del móvil intacto',
     [ids(buzon.claves.tareas.datos), ids(movil.leer('tareas', [])), de(movil.leer('tareas', []), 'm1')?.fecha],
-    [['c1', 'm1'], ['c1', 'm1'], '2026-12-02']);
+    [[c1, 'm1'].sort(), [c1, 'm1'].sort(), '2026-12-02']);
 }
 
 console.log(fallos ? `\n${fallos} fallos` : '\ntodo bien');
